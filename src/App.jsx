@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { GAMES, DURATIONS, GROUP_QS, ARCH_Q, ARCHETYPES, GROUP_NAMES } from './content.js'
-import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, POINTS, MAX_GAMES } from './logic.js'
+import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, makeTeams, POINTS, MAX_GAMES } from './logic.js'
 import { shareCard } from './share.js'
 import { sfx, buzz, unlock, isMuted, setMuted } from './sound.js'
 
@@ -14,6 +14,7 @@ const fresh = () => ({
   familiarity: 'friends',
   duration: 12,
   gamesDone: 0,
+  teams: null, // 6+ players: [{ name, emoji, color, score, members }]
   startedAt: null,
   roundNo: 0, // total rounds played this session
   lastGame: null,
@@ -31,16 +32,27 @@ function load() {
   return fresh()
 }
 
+// Scoreboard units: teams when playing in teams, otherwise players.
+export function units(g) {
+  return g.teams ? g.teams.map((t) => ({ ...t, members: t.members })) : g.players
+}
+export function teamOf(g, i) {
+  return g.teams ? g.teams.findIndex((t) => t.members.includes(i)) : i
+}
+const scoresOf = (s) => (s.teams ? s.teams.map((t) => t.score) : s.players.map((p) => p.score))
+
 function newRound(s, game) {
   const prompt = pickPrompt(game, s.intensity, s.used)
   const n = s.players.length
   const twistChance = { chill: 0.3, spicy: 0.5, unhinged: 0.7 }[s.intensity]
   // Spotlight: whoever has had the fewest turns goes next (ties go round the circle),
   // so with 12 players everyone gets a turn before anyone gets a second one.
-  const startAt = s.roundNo % n
-  let holder = startAt
-  for (let k = 0; k < n; k++) {
-    const i = (startAt + k) % n
+  // In team mode the spotlight rotates team by team, then to that team's least-used member.
+  const pool = s.teams ? s.teams[s.roundNo % s.teams.length].members : s.players.map((_, i) => i)
+  const startAt = s.roundNo % pool.length
+  let holder = pool[startAt]
+  for (let k = 0; k < pool.length; k++) {
+    const i = pool[(startAt + k) % pool.length]
     if ((s.players[i].spots || 0) < (s.players[holder].spots || 0)) holder = i
   }
   return {
@@ -75,13 +87,14 @@ export default function App() {
     setQuit(false)
     setG((s) => {
       const restore = !keep && s.episode?.startScores
-      const players = restore ? s.players.map((p, i) => ({ ...p, score: s.episode.startScores[i] ?? p.score })) : s.players
+      const players = restore && !s.teams ? s.players.map((p, i) => ({ ...p, score: s.episode.startScores[i] ?? p.score })) : s.players
+      const teams = restore && s.teams ? s.teams.map((t, i) => ({ ...t, score: s.episode.startScores[i] ?? t.score })) : s.teams
       const inGame = !['episodeEnd', 'summary'].includes(s.screen)
-      return { ...s, players, screen: to, gamesDone: s.gamesDone + (inGame && s.episode?.done > 0 ? 1 : 0), round: s.round ? { ...s.round, scored: true } : s.round }
+      return { ...s, players, teams, screen: to, gamesDone: s.gamesDone + (inGame && s.episode?.done > 0 ? 1 : 0), round: s.round ? { ...s.round, scored: true } : s.round }
     })
     if (to === 'summary') sfx.fanfare(); else sfx.whoosh()
   }
-  const scoredThisGame = g.episode?.startScores && g.players.some((p, i) => p.score !== g.episode.startScores[i])
+  const scoredThisGame = g.episode?.startScores && scoresOf(g).some((v, i) => v !== g.episode.startScores[i])
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(g)) } catch {}
   }, [g])
@@ -96,7 +109,7 @@ export default function App() {
         ...s,
         screen: chosen ? 'rules' : 'slot',
         lastGame: game,
-        episode: { game, total: episodeLength(game, s.players.length), done: 0, startScores: s.players.map((p) => p.score) },
+        episode: { game, total: episodeLength(game, s.players.length), done: 0, startScores: scoresOf(s) },
         ...newRound(s, game),
       }
     })
@@ -118,9 +131,15 @@ export default function App() {
         if (!r) return p
         return { ...p, score: p.score + r.points }
       })
+      // Teams score the BEST result among their members, never the sum, so bigger teams get no edge.
+      const teams = s.teams?.map((t) => {
+        const best = Math.max(0, ...results.filter((x) => t.members.includes(x.player)).map((x) => x.points))
+        return { ...t, score: t.score + best }
+      })
       return {
         ...s,
         players,
+        teams: teams || s.teams,
         screen: 'roundEnd',
         roundNo: s.roundNo + 1,
         episode: { ...s.episode, done: s.episode.done + 1 },
@@ -132,12 +151,15 @@ export default function App() {
   // New group: go through the vibe check first.
   const startSetup = (players, duration) => setG({ ...fresh(), players, duration, screen: 'quiz' })
   const finishQuiz = ({ venue, intensity, familiarity, archs }) => {
-    setG((s) => ({ ...s, venue, intensity, familiarity, players: s.players.map((p, i) => ({ ...p, arch: archs[i] })), startedAt: Date.now() }))
+    setG((s) => {
+      const players = s.players.map((p, i) => ({ ...p, arch: archs[i] }))
+      return { ...s, venue, intensity, familiarity, players, teams: makeTeams(players), startedAt: Date.now() }
+    })
     set({ screen: 'profile' })
   }
   // Same squad again: keep their vibe and archetypes, reset scores.
   const replay = () => {
-    setG((s) => ({ ...fresh(), players: s.players.map((p) => ({ ...p, score: 0 })), intensity: s.intensity, venue: s.venue, familiarity: s.familiarity, duration: s.duration, startedAt: Date.now() }))
+    setG((s) => ({ ...fresh(), players: s.players.map((p) => ({ ...p, score: 0, spots: 0 })), teams: s.teams?.map((t) => ({ ...t, score: 0 })) || null, intensity: s.intensity, venue: s.venue, familiarity: s.familiarity, duration: s.duration, startedAt: Date.now() }))
     startEpisode()
   }
 
@@ -282,6 +304,17 @@ function HowTo({ game: id }) {
 // Who's in the spotlight, and who's next. Scrolls sideways for big groups.
 function TurnStrip({ g, current }) {
   const n = g.players.length
+  if (g.teams) {
+    const t = teamOf(g, current)
+    return (
+      <div className="strip">
+        {g.teams.map((tm, k) => (
+          <span key={k} className={'strip-name' + (k === t ? ' on' : '')}>{tm.emoji} {tm.name}</span>
+        ))}
+        <span className="strip-hint">Team turn: {g.teams[t].name} · teams take turns, members rotate</span>
+      </div>
+    )
+  }
   return (
     <div className="strip">
       {g.players.map((p, i) => (
@@ -299,14 +332,14 @@ function ranked(players) {
 }
 
 function MiniBoard({ g }) {
-  const list = ranked(g.players)
+  const list = ranked(units(g))
   const top = list[0]?.score ?? 0
   return (
     <div className="board">
       {list.map((p, k) => (
         <div key={p.i} className={'board-row' + (p.score === top && top > 0 ? ' lead' : '')}>
           <span className="rank">{p.score === top && top > 0 ? '👑' : k + 1}</span>
-          <span className="bname">{p.name}</span>{p.arch && <span className="arch">{ARCHETYPES[p.arch]?.emoji}</span>}
+          <span className="bname">{p.members ? `${p.emoji} ${p.name}` : p.name}{p.members && <small className="members">{p.members.map((m) => g.players[m].name).join(', ')}</small>}</span>{p.arch && <span className="arch">{ARCHETYPES[p.arch]?.emoji}</span>}
           <span className="bscore">{p.score}</span>
         </div>
       ))}
@@ -485,6 +518,17 @@ function Profile({ g, onGo }) {
       </div>
       {shown > g.players.length && (
         <div className="land show">
+          {g.teams && (
+            <div className="teams">
+              <p className="who center-text">{g.players.length} players = {g.teams.length} teams, mixed by personality</p>
+              {g.teams.map((t, k) => (
+                <div key={k} className="team-card" style={{ background: t.color }}>
+                  <b>{t.emoji} {t.name}</b>
+                  <span>{t.members.map((m) => g.players[m].name).join(' · ')}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="tag center-text">Tuned for you: more {games.map((x) => `${GAMES[x].emoji} ${GAMES[x].title}`).join(' and ')}. Vibe: {g.intensity}.</p>
           <button className="btn big" onClick={() => { sfx.whoosh(); onGo() }}>Spin the first game 🎰</button>
         </div>
@@ -615,8 +659,8 @@ function Bomb({ g, setRound, onScore, onSkip }) {
   const loser = g.players[r.loser].name
   const finish = () =>
     onScore(
-      g.players.map((_, i) => ({ player: i, points: i === r.loser ? 0 : POINTS })),
-      `💥 ${loser} was holding the bomb`,
+      g.players.map((_, i) => ({ player: i, points: teamOf(g, i) === teamOf(g, r.loser) ? 0 : POINTS })),
+      `💥 ${loser} was holding the bomb${g.teams ? ` (${g.teams[teamOf(g, r.loser)].name} scores 0)` : ''}`,
     )
   return (
     <div className="center stack boom">
@@ -841,7 +885,7 @@ function Line({ g, setRound, onScore, onSkip }) {
       <div className="center stack">
         <div className="burst">🤐</div>
         <h2 className="shout">Locked!</h2>
-        <p className="tag">Hand the phone to the group.</p>
+        <p className="tag">Hand the phone to {g.teams ? <b>{g.teams[teamOf(g, me)].emoji} {g.teams[teamOf(g, me)].name}</b> : 'the group'}.</p>
         <div className="spotlight small">{name}</div>
         <p className="tag">no hints, no faces!</p>
         <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'guess' }) }}>We have the phone</button>
@@ -854,13 +898,13 @@ function Line({ g, setRound, onScore, onSkip }) {
       const pts = d === 0 ? 2 * POINTS : d === 1 ? POINTS : 0
       if (pts) sfx.fanfare(); else sfx.buzzer()
       onScore(
-        g.players.map((_, i) => ({ player: i, points: pts })),
-        `📏 ${name} said ${r.secret}, group guessed ${val}. ${d === 0 ? `Bullseye! +${pts} everyone` : d === 1 ? `So close! +${pts} everyone` : 'Way off. Do you even know them?'}`,
+        g.players.map((_, i) => ({ player: i, points: teamOf(g, i) === teamOf(g, me) || !g.teams ? pts : 0 })),
+        `📏 ${name} said ${r.secret}, group guessed ${val}. ${d === 0 ? `Bullseye! +${pts} ${g.teams ? g.teams[teamOf(g, me)].name : 'everyone'}` : d === 1 ? `So close! +${pts} ${g.teams ? g.teams[teamOf(g, me)].name : 'everyone'}` : 'Way off. Do you even know them?'}`,
       )
     }
     return (
       <div className="stack">
-        <div className="name-banner" style={{ background: game.color }}>🧠 Where did {name} put it?</div>
+        <div className="name-banner" style={{ background: game.color }}>🧠 {g.teams ? `${g.teams[teamOf(g, me)].name}: ` : ''}Where did {name} put it?</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
         <p className="tag center-text">How <b>{r.prompt.hi.toLowerCase()}</b> did {name} rate it? Argue, then tap ONE number.</p>
         <Scale />
@@ -962,7 +1006,7 @@ function Auction({ g, setRound, onScore, onSkip }) {
   const finish = (ok) => {
     if (ok) sfx.fanfare(); else sfx.buzzer()
     onScore(
-      g.players.map((_, i) => ({ player: i, points: ok ? (i === r.bidder ? 3 * POINTS : 0) : (i === r.bidder ? 0 : POINTS) })),
+      g.players.map((_, i) => ({ player: i, points: ok ? (i === r.bidder ? 3 * POINTS : 0) : (teamOf(g, i) === teamOf(g, r.bidder) ? 0 : POINTS) })),
       ok ? `🔨 ${bidderName} delivered ${r.bid}! +${3 * POINTS}` : `💸 ${bidderName} overbid! Everyone else +${POINTS}`,
     )
   }
@@ -1037,7 +1081,7 @@ function ShareBox({ g }) {
   const go = async () => {
     sfx.tap(); setBusy(true)
     try {
-      const r = await shareCard({ players: g.players, squad })
+      const r = await shareCard({ players: units(g), squad })
       if (typeof r === 'string' && r.startsWith('data:')) setImg(r)
     } catch {}
     setBusy(false)
@@ -1056,7 +1100,7 @@ function ShareBox({ g }) {
 }
 
 function Summary({ g, onAgain, onHome }) {
-  const list = ranked(g.players)
+  const list = ranked(units(g))
   const top = list[0]?.score ?? 0
   const winners = list.filter((p) => p.score === top)
   const rounds = g.history.length

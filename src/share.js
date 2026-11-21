@@ -58,7 +58,7 @@ export async function drawCard({ players, squad }) {
     x.lineWidth = 6; x.strokeStyle = '#0b0018'; x.stroke()
     x.fillStyle = '#0b0018'; x.textBaseline = 'middle'
     x.font = F(Math.min(60, h * 0.55)); x.textAlign = 'left'
-    x.fillText(`${k + 1}. ${p.name}`, -w / 2 + 40, 4)
+    x.fillText(`${k + 1}. ${p.members ? p.emoji + ' ' : ''}${p.name}`, -w / 2 + 40, 4)
     const a = ARCHETYPES[p.arch]
     if (a) { x.font = `${Math.min(56, h * 0.5)}px serif`; x.fillText(a.emoji, w / 2 - 260, 0) }
     x.font = F(Math.min(64, h * 0.6)); x.textAlign = 'right'

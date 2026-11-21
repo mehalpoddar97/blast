@@ -220,3 +220,11 @@ h3 { margin: 8px 0 0; font-size: 14px; text-transform: uppercase; letter-spacing
 .sharebox { width: 100%; display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .btn.insta { background: linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5); color: #fff; text-shadow: 2px 2px 0 var(--ink); }
 .card-preview { width: 70%; border-radius: 16px; border: 4px solid var(--ink); box-shadow: 8px 8px 0 var(--pink); }
+
+.members { display: block; font-family: Inter, sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0; color: #444; }
+.teams { display: flex; flex-direction: column; gap: 10px; }
+.team-card { border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); border-radius: 16px; padding: 12px 14px; color: var(--ink); display: flex; flex-direction: column; text-align: center; }
+.team-card b { font-family: 'Luckiest Guy', Bungee, sans-serif; font-weight: 400; font-size: 26px; letter-spacing: 1px; }
+.team-card span { font-weight: 700; font-size: 14px; }
+.team-card:nth-child(odd) { transform: rotate(-1deg); }
+.team-card:nth-child(even) { transform: rotate(1deg); }

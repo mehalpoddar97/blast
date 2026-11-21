@@ -48,9 +48,9 @@ export function pickPrompt(game, intensity, used) {
 }
 
 // Secret bomb fuse in ms. Random so nobody can count it.
-// Fuse is always 30 to 60 seconds, random so nobody can count it.
+// Fuse is always 20 to 45 seconds, random so nobody can count it.
 export function fuseMs() {
-  return 30000 + Math.floor(Math.random() * 30000)
+  return 20000 + Math.floor(Math.random() * 25000) // 20 to 45 seconds
 }
 
 // The group's dominant archetype (ties broken by order) and its top games.
@@ -62,4 +62,26 @@ export function groupProfile(archs) {
   for (const a of archs) for (const gm of ARCHETYPES[a].games) gameScore[gm] = (gameScore[gm] || 0) + 1
   const games = Object.keys(gameScore).sort((a, b) => gameScore[b] - gameScore[a]).slice(0, 2)
   return { top, games }
+}
+
+// Group-size rules: 2-5 play as individuals, 6-8 split into 2 teams, 9-12 into 3 teams.
+export function teamCount(n) {
+  return n <= 5 ? 0 : n <= 8 ? 2 : 3
+}
+
+export const TEAM_NAMES = [
+  { name: 'Team Masala', emoji: '🌶️', color: '#ff2e63' },
+  { name: 'Team Chai', emoji: '☕', color: '#ffb800' },
+  { name: 'Team Nimbu', emoji: '🍋', color: '#9dff3b' },
+]
+
+// Balanced teams: shuffle, sort by archetype, then deal like cards so each team gets a mix.
+export function makeTeams(players) {
+  const T = teamCount(players.length)
+  if (!T) return null
+  const idx = players.map((_, i) => i).sort(() => Math.random() - 0.5)
+  idx.sort((a, b) => (players[a].arch || '').localeCompare(players[b].arch || ''))
+  const teams = TEAM_NAMES.slice(0, T).map((t) => ({ ...t, score: 0, members: [] }))
+  idx.forEach((pi, k) => teams[k % T].members.push(pi))
+  return teams
 }
