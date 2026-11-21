@@ -42,6 +42,8 @@ export function pickGame(lastGame, playerCount, venue = 'lively', archs = [], fa
   if (playerCount === 2) weights.accuse -= 2
   for (const a of archs) for (const gm of ARCHETYPES[a]?.games || []) weights[gm] += 1
   const allowed = allowedGames(familiarity, gamesDone)
+  // Every session opens with a bang: BLAST Bomb first (unless you're somewhere quiet).
+  if (gamesDone === 0 && !lastGame && venue !== 'quiet') return { game: 'bomb', reason: 'Every BLAST opens with a bang 💥' }
   let pool = allowed.filter((g) => g !== lastGame)
   if (pool.length === 0) pool = allowed
   const total = pool.reduce((s, g) => s + Math.max(1, weights[g]), 0)
