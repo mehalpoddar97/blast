@@ -43,6 +43,12 @@ function newRound(s, game) {
       passes: 0,
       endsAt: null,
       twist: game === 'defend' && Math.random() < twistChance,
+      pick: null, // accuse: predictor's secret pick
+      accused: [],
+      secret: 5, // line: reader's secret number
+      bidder: null, // auction
+      bid: 3,
+      count: 0,
     },
   }
 }
@@ -107,6 +113,12 @@ export default function App() {
       <Bomb g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
     ) : g.round?.game === 'defend' ? (
       <Defend g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
+    ) : g.round?.game === 'accuse' ? (
+      <Accuse g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
+    ) : g.round?.game === 'line' ? (
+      <Line g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
+    ) : g.round?.game === 'auction' ? (
+      <Auction g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
     ) : null
 
   const screens = {
@@ -486,6 +498,244 @@ function Defend({ g, setRound, onScore, onSkip }) {
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+/* ---------------- Accusation Station ---------------- */
+function Accuse({ g, setRound, onScore, onSkip }) {
+  const r = g.round
+  const game = GAMES.accuse
+  const me = r.holder
+  const name = g.players[me].name
+  const [count, setCount] = useState(null)
+
+  useEffect(() => {
+    if (r.step !== 'count') return
+    let k = 3
+    setCount(3); sfx.tick(false); buzz(40)
+    const id = setInterval(() => {
+      k -= 1
+      if (k > 0) { setCount(k); sfx.tick(k === 1); buzz(40) }
+      else { clearInterval(id); setCount('POINT!'); sfx.boom(); buzz([150, 60, 150]); setTimeout(() => setRound({ step: 'tally' }), 1100) }
+    }, 800)
+    return () => clearInterval(id)
+  }, [r.step])
+
+  if (r.step === 'ready') {
+    return (
+      <div className="center stack">
+        <p className="who" style={{ color: game.color }}>The question</p>
+        <h2 className="prompt quote">{r.prompt.q}</h2>
+        <p className="tag">Pass the phone to <b>{name}</b>.<br />Everyone else, look away 👀</p>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'predict' }) }}>I'm {name}</button>
+        <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Different question</button>
+      </div>
+    )
+  }
+  if (r.step === 'predict') {
+    return (
+      <div className="stack">
+        <p className="who" style={{ color: game.color }}>{name}, secret prediction</p>
+        <h2 className="prompt small">{r.prompt.q}</h2>
+        <p className="tag">Who will the group point at? (Could be you!)</p>
+        <div className="chips row wrap">
+          {g.players.map((p, i) => (
+            <button key={i} className={'chip slim' + (r.pick === i ? ' on' : '')} onClick={() => { sfx.tap(); setRound({ pick: i }) }}>{p.name}</button>
+          ))}
+        </div>
+        <button className="btn big" disabled={r.pick === null} onClick={() => { sfx.ding(); setRound({ step: 'gather' }) }}>Lock it in 🔒</button>
+      </div>
+    )
+  }
+  if (r.step === 'gather') {
+    return (
+      <div className="center stack">
+        <div className="burst">👉</div>
+        <h2 className="shout">Phone in the middle!</h2>
+        <h2 className="prompt quote">{r.prompt.q}</h2>
+        <p className="tag">Everyone gets ready to point. On "POINT!", everyone points at once. No take-backs.</p>
+        <button className="btn big" onClick={() => setRound({ step: 'count' })}>3… 2… 1…</button>
+      </div>
+    )
+  }
+  if (r.step === 'count') {
+    return (
+      <div className="center stack">
+        <div key={count} className={'countdown' + (count === 'POINT!' ? ' go' : '')}>{count}</div>
+      </div>
+    )
+  }
+  // tally
+  const toggle = (i) => {
+    sfx.tap()
+    setRound({ accused: r.accused.includes(i) ? r.accused.filter((x) => x !== i) : [...r.accused, i] })
+  }
+  const finish = () => {
+    const hit = r.accused.includes(r.pick)
+    if (hit) sfx.fanfare(); else sfx.buzzer()
+    const crowned = r.accused.map((i) => g.players[i].name).join(' & ')
+    onScore(
+      [{ player: me, points: hit ? 2 * POINTS : 0 }],
+      `👑 ${crowned} got accused! ${name} predicted ${g.players[r.pick].name}${hit ? ` (+${2 * POINTS})` : ' ✗'}`,
+    )
+  }
+  return (
+    <div className="stack">
+      <h2 className="shout center-text">Count the fingers!</h2>
+      <p className="tag center-text">Who got the most? Tap them. Tie? Tap all of them.</p>
+      <div className="chips row wrap">
+        {g.players.map((p, i) => (
+          <button key={i} className={'chip slim' + (r.accused.includes(i) ? ' on' : '')} onClick={() => toggle(i)}>{p.name}</button>
+        ))}
+      </div>
+      <button className="btn big" disabled={r.accused.length === 0} onClick={finish}>Reveal {name}'s prediction</button>
+    </div>
+  )
+}
+
+/* ---------------- Where's the Line? ---------------- */
+function Line({ g, setRound, onScore, onSkip }) {
+  const r = g.round
+  const game = GAMES.line
+  const me = r.holder
+  const name = g.players[me].name
+  const [val, setVal] = useState(5)
+
+  const Scale = () => (
+    <div className="line">
+      <div className="line-num">{val}</div>
+      <input type="range" min="1" max="10" step="1" value={val} onChange={(e) => { setVal(Number(e.target.value)); sfx.slotTick() }} />
+      <div className="line-ends"><span>1 · {r.prompt.lo}</span><span>10 · {r.prompt.hi}</span></div>
+    </div>
+  )
+
+  if (r.step === 'ready') {
+    return (
+      <div className="center stack">
+        <p className="who" style={{ color: game.color }}>Mind reader this round</p>
+        <div className="holder">{name}</div>
+        <p className="tag">Take the phone. Everyone else, look away 👀</p>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'set' }) }}>I'm {name}</button>
+        <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Different situation</button>
+      </div>
+    )
+  }
+  if (r.step === 'set') {
+    return (
+      <div className="stack">
+        <p className="who" style={{ color: game.color }}>{name}, where's YOUR line?</p>
+        <h2 className="prompt quote">{r.prompt.q}</h2>
+        <Scale />
+        <button className="btn big" onClick={() => { sfx.ding(); setRound({ secret: val, step: 'handoff' }) }}>Lock my secret 🔒</button>
+      </div>
+    )
+  }
+  if (r.step === 'handoff') {
+    return (
+      <div className="center stack">
+        <div className="burst">🤐</div>
+        <h2 className="shout">Locked!</h2>
+        <p className="tag">Hand the phone to the group.<br /><b>{name}</b>, no hints, no faces.</p>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'guess' }) }}>We have the phone</button>
+      </div>
+    )
+  }
+  if (r.step === 'guess') {
+    const lock = () => {
+      const d = Math.abs(val - r.secret)
+      const pts = d === 0 ? 2 * POINTS : d === 1 ? POINTS : 0
+      if (pts) sfx.fanfare(); else sfx.buzzer()
+      onScore(
+        g.players.map((_, i) => ({ player: i, points: pts })),
+        `📏 ${name} said ${r.secret}, group guessed ${val}. ${d === 0 ? `Bullseye! +${pts} everyone` : d === 1 ? `So close! +${pts} everyone` : 'Way off. Do you even know them?'}`,
+      )
+    }
+    return (
+      <div className="stack">
+        <p className="who" style={{ color: game.color }}>Group: where did {name} put it?</p>
+        <h2 className="prompt quote">{r.prompt.q}</h2>
+        <p className="tag center-text">Argue it out. Agree on ONE number.</p>
+        <Scale />
+        <button className="btn big" onClick={lock}>Lock group guess</button>
+      </div>
+    )
+  }
+  return null
+}
+
+/* ---------------- Going Once, Going Twice ---------------- */
+function Auction({ g, setRound, onScore, onSkip }) {
+  const r = g.round
+  const game = GAMES.auction
+  const [left, setLeft] = useState(30)
+  const opener = g.players[r.holder].name
+
+  useEffect(() => {
+    if (r.step !== 'timer') return
+    const start = Date.now()
+    const id = setInterval(() => {
+      const l = Math.max(0, 30 - Math.floor((Date.now() - start) / 1000))
+      setLeft((old) => { if (old !== l) sfx.tick(l <= 5); return l })
+      if (l === 0) { clearInterval(id); sfx.buzzer(); buzz(300); setRound({ step: 'confirm' }) }
+    }, 200)
+    return () => clearInterval(id)
+  }, [r.step])
+
+  if (r.step === 'ready') {
+    return (
+      <div className="stack">
+        <p className="who" style={{ color: game.color }}>Lot on the table</p>
+        <h2 className="prompt quote">{r.prompt.q}</h2>
+        <p className="tag">How many can you name in 30 seconds? <b>{opener}</b> opens the bidding. Go round, out loud, each bid higher. Someone says "Going once, going twice… SOLD!"{g.venue === 'quiet' ? ' (Inside voices 🤫)' : ''}</p>
+        <h3>Sold to…</h3>
+        <div className="chips row wrap">
+          {g.players.map((p, i) => (
+            <button key={i} className={'chip slim' + (r.bidder === i ? ' on' : '')} onClick={() => { sfx.tap(); setRound({ bidder: i }) }}>{p.name}</button>
+          ))}
+        </div>
+        <h3>…for</h3>
+        <div className="stepper">
+          <button onClick={() => { sfx.tap(); setRound({ bid: Math.max(1, r.bid - 1) }) }}>−</button>
+          <span>{r.bid}</span>
+          <button onClick={() => { sfx.tap(); setRound({ bid: Math.min(40, r.bid + 1) }) }}>+</button>
+        </div>
+        <button className="btn big" disabled={r.bidder === null} onClick={() => { sfx.boom(); setRound({ step: 'timer', count: 0 }) }}>🔨 SOLD! Start 30s</button>
+        <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Different category</button>
+      </div>
+    )
+  }
+
+  const bidderName = g.players[r.bidder].name
+  if (r.step === 'timer') {
+    return (
+      <div className="center stack">
+        <p className="who" style={{ color: game.color }}>{bidderName} needs {r.bid}</p>
+        <h2 className="prompt small">{r.prompt.q}</h2>
+        <div className={'timer' + (left <= 5 ? ' hot' : '')}>{left}</div>
+        <button className="counter" onClick={() => { sfx.pass(); buzz(15); setRound({ count: r.count + 1 }) }}>
+          <span>{r.count}</span>
+          <small>Group: tap for each valid answer</small>
+        </button>
+        <button className="link" onClick={() => setRound({ step: 'confirm' })}>Stop early</button>
+      </div>
+    )
+  }
+  const hit = r.count >= r.bid
+  const finish = (ok) => {
+    if (ok) sfx.fanfare(); else sfx.buzzer()
+    onScore(
+      g.players.map((_, i) => ({ player: i, points: ok ? (i === r.bidder ? 3 * POINTS : 0) : (i === r.bidder ? 0 : POINTS) })),
+      ok ? `🔨 ${bidderName} delivered ${r.bid}! +${3 * POINTS}` : `💸 ${bidderName} overbid! Everyone else +${POINTS}`,
+    )
+  }
+  return (
+    <div className="center stack">
+      <h2 className="shout">Time!</h2>
+      <p className="tag">{bidderName} bid <b>{r.bid}</b>. Counter says <b>{r.count}</b>.</p>
+      <p className="muted">Group has the final word.</p>
+      <button className={'btn big' + (hit ? '' : ' ghost')} onClick={() => finish(true)}>✅ Delivered! +{3 * POINTS}</button>
+      <button className={'btn' + (hit ? ' ghost' : ' big')} onClick={() => finish(false)}>❌ Fell short</button>
     </div>
   )
 }

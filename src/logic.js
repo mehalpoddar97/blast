@@ -1,8 +1,8 @@
-import { GAMES, BOMB, DEFEND, promptsFor } from './content.js'
+import { GAMES, BOMB, DEFEND, ACCUSE, LINE, AUCTION, promptsFor } from './content.js'
 
 export const POINTS = 10
 
-const BANKS = { bomb: BOMB, defend: DEFEND }
+const BANKS = { bomb: BOMB, defend: DEFEND, accuse: ACCUSE, line: LINE, auction: AUCTION }
 
 // Weighted pick of the next game for the episode. Never repeats the previous game
 // when another one exists. Quiet venues get fewer loud bomb rounds.
@@ -10,6 +10,9 @@ export function pickGame(lastGame, playerCount, venue = 'lively') {
   const weights = {
     bomb: venue === 'quiet' ? 2 : 4,
     defend: playerCount >= 3 ? 4 : 3,
+    accuse: playerCount >= 3 ? 4 : 2,
+    line: 3,
+    auction: venue === 'quiet' ? 2 : 3,
   }
   let pool = Object.keys(GAMES).filter((g) => g !== lastGame)
   if (pool.length === 0) pool = Object.keys(GAMES)
