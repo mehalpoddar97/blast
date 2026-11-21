@@ -30,6 +30,16 @@ Friend groups in their 20s and 30s, at a dinner table, a house party, a cafe or 
 | 📏 **Where's the Line?** | One player secretly places a situation on a 1 to 10 scale. The group argues and agrees on one guess. | Exact +20 each, off by 1 +10 each |
 | 🔨 **Going Once, Going Twice** | Bid out loud on how many answers you can name in 30 s. SOLD! Live timer and tap counter. | Hit your bid +30, fall short = everyone else +10 |
 
+## Matching games to the crowd
+
+| How well you know each other | Games allowed | Prompts |
+|---|---|---|
+| We just met | Icebreakers first: Bomb, Defend, Going Once. Where's the Line unlocks after 2 games. Accusation Station stays locked. | Capped at Spicy |
+| Good friends | All five | As chosen |
+| Dark secrets | All five, Accusation and Where's the Line favoured | As chosen |
+
+Venue shifts the mix too (quiet spot = fewer shouty games, house party = more), and each player's archetype boosts their favourite games. The slot machine shows a one-line reason for every pick, e.g. "Picked because you just met: zero mind-reading needed".
+
 ## Group sizes (2 to 12)
 
 | Players | Mode | Spotlight |

@@ -228,3 +228,6 @@ h3 { margin: 8px 0 0; font-size: 14px; text-transform: uppercase; letter-spacing
 .team-card span { font-weight: 700; font-size: 14px; }
 .team-card:nth-child(odd) { transform: rotate(-1deg); }
 .team-card:nth-child(even) { transform: rotate(1deg); }
+
+.reason { margin: 0; align-self: center; background: #fff; color: var(--ink); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); border-radius: 999px; padding: 8px 16px; font-weight: 800; font-size: 15px; transform: rotate(-1deg); }
+.chip.locked { opacity: 0.5; }

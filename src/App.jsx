@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { GAMES, DURATIONS, GROUP_QS, ARCH_Q, ARCHETYPES, GROUP_NAMES } from './content.js'
-import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, makeTeams, POINTS, MAX_GAMES } from './logic.js'
+import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, makeTeams, lockReason, POINTS, MAX_GAMES } from './logic.js'
 import { shareCard } from './share.js'
 import { sfx, buzz, unlock, isMuted, setMuted } from './sound.js'
 
@@ -104,12 +104,13 @@ export default function App() {
   // Start a new episode of a given (or random) game for the same group.
   const startEpisode = (chosen) =>
     setG((s) => {
-      const game = chosen || pickGame(s.lastGame, s.players.length, s.venue, s.players.map((p) => p.arch).filter(Boolean), s.familiarity)
+      const picked = chosen ? { game: chosen, reason: 'Your pick 👆' } : pickGame(s.lastGame, s.players.length, s.venue, s.players.map((p) => p.arch).filter(Boolean), s.familiarity, s.gamesDone)
+      const game = picked.game
       return {
         ...s,
         screen: chosen ? 'rules' : 'slot',
         lastGame: game,
-        episode: { game, total: episodeLength(game, s.players.length), done: 0, startScores: scoresOf(s) },
+        episode: { game, reason: picked.reason, total: episodeLength(game, s.players.length), done: 0, startScores: scoresOf(s) },
         ...newRound(s, game),
       }
     })
@@ -153,7 +154,7 @@ export default function App() {
   const finishQuiz = ({ venue, intensity, familiarity, archs }) => {
     setG((s) => {
       const players = s.players.map((p, i) => ({ ...p, arch: archs[i] }))
-      return { ...s, venue, intensity, familiarity, players, teams: makeTeams(players), startedAt: Date.now() }
+      return { ...s, venue, intensity: familiarity === 'new' && intensity === 'unhinged' ? 'spicy' : intensity, familiarity, players, teams: makeTeams(players), startedAt: Date.now() }
     })
     set({ screen: 'profile' })
   }
@@ -529,7 +530,11 @@ function Profile({ g, onGo }) {
               ))}
             </div>
           )}
-          <p className="tag center-text">Tuned for you: more {games.map((x) => `${GAMES[x].emoji} ${GAMES[x].title}`).join(' and ')}. Vibe: {g.intensity}.</p>
+          <p className="tag center-text">{g.familiarity === 'new'
+            ? <>You just met, so we start with icebreakers: 💣 🎭 🔨. Mind-reading games unlock as you warm up. Vibe: {g.intensity}.</>
+            : g.familiarity === 'family'
+              ? <>You know each other's secrets, so expect more 👉 Accusation Station and 📏 Where's the Line. Vibe: {g.intensity}.</>
+              : <>Tuned for you: more {games.map((x) => `${GAMES[x].emoji} ${GAMES[x].title}`).join(' and ')}. Vibe: {g.intensity}.</>}</p>
           <button className="btn big" onClick={() => { sfx.whoosh(); onGo() }}>Spin the first game 🎰</button>
         </div>
       )}
@@ -575,6 +580,7 @@ function Slot({ g, onDone }) {
       </div>
       <div className={'land' + (landed ? ' show' : '')}>
         <h2 className="shout" style={{ color: game.color }}>{game.title}!</h2>
+        {g.episode.reason && <p className="reason">{g.episode.reason}</p>}
         <button className="btn big" onClick={onDone} disabled={!landed}>Show me the rules</button>
       </div>
     </div>
@@ -1062,11 +1068,14 @@ function EpisodeEnd({ g, onRandom, onPick, onFinish }) {
       <button className="btn big" onClick={onRandom}>Next game 🎰</button>
       <h3>…or pick the next game</h3>
       <div className="chips row wrap">
-        {others.map((x) => (
-          <button key={x.id} className="chip slim" onClick={() => { sfx.tap(); onPick(x.id) }}>
-            <span className="chip-emoji">{x.emoji}</span>{x.title}
+        {others.map((x) => {
+          const lock = lockReason(x.id, g.familiarity, g.gamesDone)
+          return (
+          <button key={x.id} className={'chip slim' + (lock ? ' locked' : '')} disabled={!!lock} onClick={() => { sfx.tap(); onPick(x.id) }}>
+            <span className="chip-emoji">{lock ? '🔒' : x.emoji}</span>{x.title}{lock && <small>{lock}</small>}
           </button>
-        ))}
+          )
+        })}
       </div>
       <button className={'btn ' + (timeUp ? '' : 'ghost')} onClick={onFinish}>Finish & crown the winner 👑</button>
     </div>

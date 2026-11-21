@@ -5,29 +5,64 @@ export const MAX_GAMES = 5 // a session is at most 5 games, then the final leade
 
 const BANKS = { bomb: BOMB, defend: DEFEND, accuse: ACCUSE, line: LINE, auction: AUCTION }
 
-// Weighted pick of the next game for the episode. Never repeats the previous game
-// when another one exists. Quiet venues get fewer loud bomb rounds.
-// The vibe check matters: each player's archetype adds weight to the games they love,
-// and groups who know each other well get more mind-reading games.
-export function pickGame(lastGame, playerCount, venue = 'lively', archs = [], familiarity = 'friends') {
-  const weights = {
-    bomb: venue === 'quiet' ? 2 : 4,
-    defend: playerCount >= 3 ? 4 : 3,
-    accuse: playerCount >= 3 ? 4 : 2,
-    line: familiarity === 'new' ? 2 : 4,
-    auction: venue === 'quiet' ? 2 : 3,
-  }
-  if (familiarity === 'new') { weights.bomb += 1; weights.auction += 1 }
-  for (const a of archs) for (const gm of ARCHETYPES[a]?.games || []) weights[gm] += 2
-  let pool = Object.keys(GAMES).filter((g) => g !== lastGame)
-  if (pool.length === 0) pool = Object.keys(GAMES)
-  const total = pool.reduce((s, g) => s + (weights[g] || 3), 0)
+// ---- Matching games to the crowd ----
+// Rule table (familiarity x venue):
+//   Just met     -> icebreakers only: Bomb, Defend, Auction. Where's the Line unlocks from game 3
+//                   (you've warmed up by then). Accusation Station never: you can't accuse a stranger.
+//                   Prompts capped at Spicy.
+//   Good friends -> everything allowed.
+//   Dark secrets -> everything allowed, mind-reading games (Accusation, Line) preferred.
+//   Quiet place  -> fewer shouty games (Bomb, Auction); House party -> more.
+export const NEEDS_KNOWING = ['accuse', 'line']
+
+export function allowedGames(familiarity, gamesDone = 0) {
+  return Object.keys(GAMES).filter((g) => {
+    if (familiarity !== 'new') return true
+    if (g === 'accuse') return false
+    if (g === 'line') return gamesDone >= 2
+    return true
+  })
+}
+
+export function lockReason(id, familiarity, gamesDone) {
+  if (familiarity !== 'new') return null
+  if (id === 'accuse') return 'Locked: you just met'
+  if (id === 'line' && gamesDone < 2) return 'Unlocks after 2 games'
+  return null
+}
+
+// Weighted pick of the next game, plus a one-line reason shown on the slot machine.
+// Never repeats the previous game when another one is allowed.
+export function pickGame(lastGame, playerCount, venue = 'lively', archs = [], familiarity = 'friends', gamesDone = 0) {
+  const weights = { bomb: 4, defend: 4, accuse: 3, line: 3, auction: 3 }
+  if (venue === 'quiet') { weights.bomb -= 2; weights.auction -= 1; weights.defend += 1 }
+  else { weights.bomb += 2; weights.auction += 1 }
+  if (familiarity === 'family') { weights.accuse += 4; weights.line += 3 }
+  if (familiarity === 'new') { weights.bomb += 2; weights.defend += 1 }
+  if (playerCount === 2) weights.accuse -= 2
+  for (const a of archs) for (const gm of ARCHETYPES[a]?.games || []) weights[gm] += 1
+  const allowed = allowedGames(familiarity, gamesDone)
+  let pool = allowed.filter((g) => g !== lastGame)
+  if (pool.length === 0) pool = allowed
+  const total = pool.reduce((s, g) => s + Math.max(1, weights[g]), 0)
   let r = Math.random() * total
+  let game = pool[0]
   for (const g of pool) {
-    r -= weights[g] || 3
-    if (r <= 0) return g
+    r -= Math.max(1, weights[g])
+    if (r <= 0) { game = g; break }
   }
-  return pool[0]
+  return { game, reason: reasonFor(game, venue, familiarity, archs) }
+}
+
+function reasonFor(game, venue, familiarity, archs) {
+  if (familiarity === 'new' && !NEEDS_KNOWING.includes(game)) return 'Picked because you just met: zero mind-reading needed 🤝'
+  if (familiarity === 'new' && game === 'line') return "You've warmed up. Time to read each other 👀"
+  if (familiarity === 'family' && NEEDS_KNOWING.includes(game)) return "Picked because you know each other's secrets 🕵️"
+  if (venue === 'lively' && (game === 'bomb' || game === 'auction')) return 'Picked for a loud crowd 🎉'
+  if (venue === 'quiet' && (game === 'defend' || game === 'line')) return 'Picked for a quiet spot ☕'
+  const fan = Object.keys(ARCHETYPES).find((a) => archs.includes(a) && ARCHETYPES[a].games.includes(game))
+  if (fan) return `Picked for your ${ARCHETYPES[fan].label.replace('The ', '')}s ${ARCHETYPES[fan].emoji}`
+  return 'Picked to keep things fresh 🎲'
 }
 
 // How many rounds an episode of this game lasts for this group.
