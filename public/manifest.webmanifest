@@ -1,0 +1,16 @@
+{
+  "name": "BLAST! The Party App",
+  "short_name": "BLAST!",
+  "description": "A pocket game show for 2 to 12 friends. One phone. No sign-up.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14002e",
+  "theme_color": "#14002e",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
