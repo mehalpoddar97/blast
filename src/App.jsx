@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { GAMES, INTENSITIES, DURATIONS } from './content.js'
+import { GAMES, INTENSITIES, DURATIONS, VENUES } from './content.js'
 import { pickGame, pickPrompt, scoreGuessRound, targetsFor, POINTS } from './logic.js'
 
 const SAVE_KEY = 'blast-game-v1'
@@ -8,6 +8,7 @@ const fresh = () => ({
   screen: 'home',
   players: [],
   intensity: 'chill',
+  venue: 'lively',
   duration: 12,
   startedAt: null,
   roundNo: 0,
@@ -39,7 +40,7 @@ export default function App() {
 
   const startRound = () =>
     setG((s) => {
-      const game = pickGame(s.lastGame, s.players.length)
+      const game = pickGame(s.lastGame, s.players.length, s.venue)
       const prompt = pickPrompt(game, s.intensity, s.used)
       const n = s.players.length
       return {
@@ -101,8 +102,8 @@ export default function App() {
       <Setup
         g={g}
         onBack={() => set({ screen: 'home' })}
-        onGo={(players, intensity, duration) => {
-          setG({ ...fresh(), players, intensity, duration, startedAt: Date.now(), screen: 'board-start' })
+        onGo={(players, intensity, duration, venue) => {
+          setG({ ...fresh(), players, intensity, duration, venue, startedAt: Date.now(), screen: 'board-start' })
           startRound()
         }}
       />
@@ -126,7 +127,7 @@ export default function App() {
     summary: (
       <Summary
         g={g}
-        onAgain={() => setG({ ...fresh(), players: g.players.map((p) => ({ ...p, score: 0, hits: 0, tries: 0 })), intensity: g.intensity, duration: g.duration, startedAt: Date.now(), screen: 'board-start' }) || startRound()}
+        onAgain={() => setG({ ...fresh(), players: g.players.map((p) => ({ ...p, score: 0, hits: 0, tries: 0 })), intensity: g.intensity, venue: g.venue, duration: g.duration, startedAt: Date.now(), screen: 'board-start' }) || startRound()}
         onHome={() => setG(fresh())}
       />
     ),
@@ -175,6 +176,7 @@ function Setup({ onBack, onGo }) {
   const [names, setNames] = useState(['', ''])
   const [intensity, setIntensity] = useState('chill')
   const [duration, setDuration] = useState(12)
+  const [venue, setVenue] = useState('lively')
   const [err, setErr] = useState('')
   const inputs = useRef([])
 
@@ -191,7 +193,7 @@ function Setup({ onBack, onGo }) {
     if (clean.length < 2) return setErr('Add at least 2 players.')
     const lower = clean.map((n) => n.toLowerCase())
     if (new Set(lower).size !== lower.length) return setErr('Two players have the same name. Add an initial.')
-    onGo(clean.map((name) => ({ name, score: 0, hits: 0, tries: 0 })), intensity, duration)
+    onGo(clean.map((name) => ({ name, score: 0, hits: 0, tries: 0 })), intensity, duration, venue)
   }
 
   return (
@@ -220,6 +222,15 @@ function Setup({ onBack, onGo }) {
       <div className="chips">
         {INTENSITIES.map((x) => (
           <button key={x.id} className={'chip' + (intensity === x.id ? ' on' : '')} onClick={() => setIntensity(x.id)}>
+            <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
+          </button>
+        ))}
+      </div>
+
+      <h3>Where are you?</h3>
+      <div className="chips row">
+        {VENUES.map((x) => (
+          <button key={x.id} className={'chip slim' + (venue === x.id ? ' on' : '')} onClick={() => setVenue(x.id)}>
             <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
           </button>
         ))}
@@ -393,7 +404,7 @@ function Auction({ g, setRound, onScore, onSkip }) {
       <div className="stack">
         <p className="who" style={{ color: game.color }}>Category</p>
         <h2 className="prompt">{r.prompt.q}</h2>
-        <p className="tag">How many can you name in 30 seconds?<br /><b>{opener}</b> opens the bidding. Go round, out loud. Each bid must go higher.</p>
+        <p className="tag">How many can you name in 30 seconds?<br /><b>{opener}</b> opens the bidding. Go round, out loud. Each bid must go higher.{g.venue === 'quiet' ? ' Inside voices, you are in public 🤫' : ''}</p>
         <h3>Who won the bid?</h3>
         <div className="chips row wrap">
           {g.players.map((p, i) => (

@@ -14,11 +14,12 @@ export function targetsFor(n, roundNo) {
 
 // Weighted pick of the next mini-game. Never repeats the previous game.
 // Two-player groups lean towards the guessing games; bigger groups get more auctions.
-export function pickGame(lastGame, playerCount) {
+// Venue matters too: a quiet cafe gets fewer shout-out-loud auctions, a house party gets more.
+export function pickGame(lastGame, playerCount, venue = 'lively') {
   const weights = {
     brain: 4,
     line: 3,
-    auction: playerCount >= 3 ? 3 : 2,
+    auction: (playerCount >= 3 ? 3 : 2) + (venue === 'quiet' ? -1 : 1),
   }
   const pool = Object.keys(weights).filter((g) => g !== lastGame)
   const total = pool.reduce((s, g) => s + weights[g], 0)

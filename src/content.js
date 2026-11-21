@@ -120,6 +120,11 @@ export const INTENSITIES = [
   { id: 'unhinged', label: 'Unhinged', emoji: '🤪', hint: 'Absurd, never mean' },
 ]
 
+export const VENUES = [
+  { id: 'quiet', label: 'Quiet place', emoji: '☕', hint: 'Cafe, office, metro' },
+  { id: 'lively', label: 'House party', emoji: '🎉', hint: 'Go loud' },
+]
+
 export const DURATIONS = [
   { id: 12, label: '12 min' },
   { id: 20, label: '20 min' },
