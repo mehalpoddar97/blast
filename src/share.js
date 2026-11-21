@@ -69,7 +69,7 @@ export async function drawCard({ players, squad }) {
 
   shadowText('One phone. No sign-up. Pure chaos.', W / 2, H - 150, 46, '#00e0ff')
   x.font = '600 34px Inter, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.8)'; x.textAlign = 'center'
-  x.fillText('Play BLAST: mehalpoddar97.github.io/blast', W / 2, H - 80)
+  x.fillText('Play BLAST: blast.edumate.co.in', W / 2, H - 80)
   return c
 }
 

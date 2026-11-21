@@ -4,7 +4,7 @@
 
 > Same app. Different people. Completely different chaos.
 
-**Play now:** https://mehalpoddar97.github.io/blast/
+**Play now:** https://blast.edumate.co.in (backup: https://mehalpoddar97.github.io/blast/)
 
 Built from zero at Vibe Coders Hackathon Edition 3 (Kolkata, 21 Nov 2026), *Play* track, by Mehal Poddar and Shivani Bagaria.
 
