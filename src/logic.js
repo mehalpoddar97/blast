@@ -1,4 +1,4 @@
-import { GAMES, BOMB, DEFEND, ACCUSE, LINE, AUCTION, promptsFor } from './content.js'
+import { GAMES, ARCHETYPES, BOMB, DEFEND, ACCUSE, LINE, AUCTION, promptsFor } from './content.js'
 
 export const POINTS = 10
 
@@ -6,14 +6,18 @@ const BANKS = { bomb: BOMB, defend: DEFEND, accuse: ACCUSE, line: LINE, auction:
 
 // Weighted pick of the next game for the episode. Never repeats the previous game
 // when another one exists. Quiet venues get fewer loud bomb rounds.
-export function pickGame(lastGame, playerCount, venue = 'lively') {
+// The vibe check matters: each player's archetype adds weight to the games they love,
+// and groups who know each other well get more mind-reading games.
+export function pickGame(lastGame, playerCount, venue = 'lively', archs = [], familiarity = 'friends') {
   const weights = {
     bomb: venue === 'quiet' ? 2 : 4,
     defend: playerCount >= 3 ? 4 : 3,
     accuse: playerCount >= 3 ? 4 : 2,
-    line: 3,
+    line: familiarity === 'new' ? 2 : 4,
     auction: venue === 'quiet' ? 2 : 3,
   }
+  if (familiarity === 'new') { weights.bomb += 1; weights.auction += 1 }
+  for (const a of archs) for (const gm of ARCHETYPES[a]?.games || []) weights[gm] += 2
   let pool = Object.keys(GAMES).filter((g) => g !== lastGame)
   if (pool.length === 0) pool = Object.keys(GAMES)
   const total = pool.reduce((s, g) => s + (weights[g] || 3), 0)
@@ -45,4 +49,15 @@ export function pickPrompt(game, intensity, used) {
 // Secret bomb fuse in ms. Random so nobody can count it.
 export function fuseMs() {
   return 18000 + Math.floor(Math.random() * 22000) // 18 to 40 seconds
+}
+
+// The group's dominant archetype (ties broken by order) and its top games.
+export function groupProfile(archs) {
+  const counts = {}
+  for (const a of archs) counts[a] = (counts[a] || 0) + 1
+  const top = Object.keys(ARCHETYPES).sort((a, b) => (counts[b] || 0) - (counts[a] || 0))[0]
+  const gameScore = {}
+  for (const a of archs) for (const gm of ARCHETYPES[a].games) gameScore[gm] = (gameScore[gm] || 0) + 1
+  const games = Object.keys(gameScore).sort((a, b) => gameScore[b] - gameScore[a]).slice(0, 2)
+  return { top, games }
 }

@@ -232,3 +232,38 @@ const LEVEL = { chill: 0, spicy: 1, unhinged: 2 }
 export function promptsFor(bank, intensity) {
   return bank.filter((p) => LEVEL[p.i] <= LEVEL[intensity])
 }
+
+// Opening vibe check. Group questions set the vibe; each player's pick sets their archetype.
+export const GROUP_QS = [
+  { key: 'venue', q: 'Where are you right now?', o: [
+    { v: 'quiet', label: 'Somewhere quiet', emoji: '☕' },
+    { v: 'lively', label: 'House party', emoji: '🎉' },
+    { v: 'lively', label: 'Dinner table', emoji: '🍛' },
+    { v: 'quiet', label: 'On a walk / in transit', emoji: '🚶' },
+  ] },
+  { key: 'familiarity', q: 'How well do you know each other?', o: [
+    { v: 'new', label: 'We just met', emoji: '🤝' },
+    { v: 'friends', label: 'Good friends', emoji: '🫶' },
+    { v: 'family', label: 'We know each other’s dark secrets', emoji: '🕵️' },
+  ] },
+  { key: 'intensity', q: 'Roast tolerance?', o: [
+    { v: 'chill', label: 'Be gentle', emoji: '🧊' },
+    { v: 'spicy', label: 'Tease me', emoji: '🌶️' },
+    { v: 'unhinged', label: 'No mercy', emoji: '🤪' },
+  ] },
+]
+
+export const ARCH_Q = 'At a party, you are the one who…'
+export const ARCHETYPES = {
+  instigator: { label: 'The Instigator', emoji: '😈', pick: 'Starts the argument', line: 'Lights fires, then watches.', games: ['accuse', 'defend'] },
+  strategist: { label: 'The Strategist', emoji: '🧠', pick: 'Plays to win', line: 'Counting points since round one.', games: ['auction', 'line'] },
+  performer: { label: 'The Performer', emoji: '🎤', pick: 'Grabs the mic', line: 'Every room is a stage.', games: ['defend', 'bomb'] },
+  connector: { label: 'The Connector', emoji: '🫶', pick: 'Reads the room', line: 'Knows what you think before you do.', games: ['line', 'accuse'] },
+}
+
+export const GROUP_NAMES = {
+  instigator: 'The Chaos Committee',
+  strategist: 'The Boardroom Sharks',
+  performer: 'The Drama Company',
+  connector: 'The Mind Readers Club',
+}

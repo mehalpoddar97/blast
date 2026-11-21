@@ -152,3 +152,18 @@ h3 { margin: 8px 0 0; font-size: 14px; text-transform: uppercase; letter-spacing
 .counter:active { transform: translate(5px, 5px); box-shadow: 3px 3px 0 var(--ink); }
 .counter span { font-family: Bungee, sans-serif; font-size: 70px; }
 .counter small { font-size: 12px; font-weight: 700; padding: 0 24px; }
+.pop { animation: pop 0.32s cubic-bezier(.2,1.6,.4,1); }
+.options { display: grid; gap: 12px; }
+.opt { text-align: left; font-size: 18px; font-weight: 800; padding: 16px 18px; border-radius: 16px; border: 3px solid var(--ink); background: #fff; color: var(--ink); box-shadow: 5px 5px 0 var(--ink); display: flex; align-items: center; gap: 12px; }
+.opt:nth-child(odd) { transform: rotate(-1deg); }
+.opt:nth-child(even) { transform: rotate(1deg); }
+.opt:active { background: var(--yellow); transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--ink); }
+.opt-emoji { font-size: 28px; }
+.arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.arch-card { background: #fff; color: var(--ink); border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--pink); border-radius: 18px; padding: 14px 10px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px;
+  opacity: 0; transform: scale(0.3) rotate(-20deg); transition: all 0.4s cubic-bezier(.2,1.6,.4,1); }
+.arch-card.in { opacity: 1; }
+.arch-emoji { font-size: 40px; }
+.arch-card b { font-size: 18px; }
+.arch-label { font-family: Bungee, sans-serif; font-size: 13px; color: var(--pink); }
+.arch-card small { font-size: 12px; color: #444; }

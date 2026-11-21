@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { GAMES, INTENSITIES, DURATIONS, VENUES } from './content.js'
-import { pickGame, pickPrompt, episodeLength, fuseMs, POINTS } from './logic.js'
+import { GAMES, DURATIONS, GROUP_QS, ARCH_Q, ARCHETYPES, GROUP_NAMES } from './content.js'
+import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, POINTS } from './logic.js'
 import { sfx, buzz, unlock, isMuted, setMuted } from './sound.js'
 
 const SAVE_KEY = 'blast-game-v2'
@@ -10,6 +10,7 @@ const fresh = () => ({
   players: [],
   intensity: 'spicy',
   venue: 'lively',
+  familiarity: 'friends',
   duration: 12,
   startedAt: null,
   roundNo: 0, // total rounds played this session
@@ -65,7 +66,7 @@ export default function App() {
   // Start a new episode of a given (or random) game for the same group.
   const startEpisode = (chosen) =>
     setG((s) => {
-      const game = chosen || pickGame(s.lastGame, s.players.length, s.venue)
+      const game = chosen || pickGame(s.lastGame, s.players.length, s.venue, s.players.map((p) => p.arch).filter(Boolean), s.familiarity)
       return {
         ...s,
         screen: chosen ? 'rules' : 'slot',
@@ -103,8 +104,15 @@ export default function App() {
       }
     })
 
-  const startGame = (players, intensity, duration, venue) => {
-    setG({ ...fresh(), players, intensity, duration, venue, startedAt: Date.now() })
+  // New group: go through the vibe check first.
+  const startSetup = (players, duration) => setG({ ...fresh(), players, duration, screen: 'quiz' })
+  const finishQuiz = ({ venue, intensity, familiarity, archs }) => {
+    setG((s) => ({ ...s, venue, intensity, familiarity, players: s.players.map((p, i) => ({ ...p, arch: archs[i] })), startedAt: Date.now() }))
+    set({ screen: 'profile' })
+  }
+  // Same squad again: keep their vibe and archetypes, reset scores.
+  const replay = () => {
+    setG((s) => ({ ...fresh(), players: s.players.map((p) => ({ ...p, score: 0 })), intensity: s.intensity, venue: s.venue, familiarity: s.familiarity, duration: s.duration, startedAt: Date.now() }))
     startEpisode()
   }
 
@@ -123,7 +131,9 @@ export default function App() {
 
   const screens = {
     home: <Home g={g} onStart={() => { unlock(); sfx.whoosh(); set({ screen: 'setup' }) }} onResume={() => { unlock(); set({ screen: g.round?.scored ? 'roundEnd' : 'play' }) }} />,
-    setup: <Setup onBack={() => set({ screen: 'home' })} onGo={startGame} />,
+    setup: <Setup onBack={() => set({ screen: 'home' })} onGo={startSetup} />,
+    quiz: <Quiz g={g} onDone={finishQuiz} />,
+    profile: <Profile g={g} onGo={() => startEpisode()} />,
     slot: <Slot g={g} onDone={() => set({ screen: 'rules' })} />,
     rules: <Rules g={g} onGo={() => { sfx.whoosh(); set({ screen: 'play' }) }} />,
     play,
@@ -132,7 +142,7 @@ export default function App() {
     summary: (
       <Summary
         g={g}
-        onAgain={() => startGame(g.players.map((p) => ({ ...p, score: 0 })), g.intensity, g.duration, g.venue)}
+        onAgain={replay}
         onHome={() => setG(fresh())}
       />
     ),
@@ -140,7 +150,7 @@ export default function App() {
 
   return (
     <div className={'app game-' + (g.round?.game || 'none')}>
-      {g.screen !== 'home' && g.screen !== 'setup' && (
+      {!['home', 'setup', 'quiz', 'profile'].includes(g.screen) && (
         <TopBar
           g={g}
           muted={muted}
@@ -209,9 +219,7 @@ function Home({ g, onStart, onResume }) {
 
 function Setup({ onBack, onGo }) {
   const [names, setNames] = useState(['', ''])
-  const [intensity, setIntensity] = useState('spicy')
   const [duration, setDuration] = useState(12)
-  const [venue, setVenue] = useState('lively')
   const [err, setErr] = useState('')
   const inputs = useRef([])
 
@@ -230,7 +238,7 @@ function Setup({ onBack, onGo }) {
     if (clean.length < 2) { sfx.buzzer(); return setErr('Add at least 2 players.') }
     const lower = clean.map((n) => n.toLowerCase())
     if (new Set(lower).size !== lower.length) { sfx.buzzer(); return setErr('Two players have the same name. Add an initial.') }
-    onGo(clean.map((name) => ({ name, score: 0 })), intensity, duration, venue)
+    onGo(clean.map((name) => ({ name, score: 0 })), duration)
   }
 
   return (
@@ -255,24 +263,6 @@ function Setup({ onBack, onGo }) {
         {names.length < 12 && <button className="btn ghost small" onClick={add}>+ Add player</button>}
       </div>
 
-      <h3>Vibe</h3>
-      <div className="chips">
-        {INTENSITIES.map((x) => (
-          <button key={x.id} className={'chip' + (intensity === x.id ? ' on' : '')} onClick={() => pick(setIntensity, x.id)}>
-            <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
-          </button>
-        ))}
-      </div>
-
-      <h3>Where are you?</h3>
-      <div className="chips row">
-        {VENUES.map((x) => (
-          <button key={x.id} className={'chip slim' + (venue === x.id ? ' on' : '')} onClick={() => pick(setVenue, x.id)}>
-            <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
-          </button>
-        ))}
-      </div>
-
       <h3>How long?</h3>
       <div className="chips row">
         {DURATIONS.map((x) => (
@@ -281,7 +271,111 @@ function Setup({ onBack, onGo }) {
       </div>
 
       {err && <p className="err">{err}</p>}
-      <button className="btn big sticky" onClick={go}>Let's BLAST →</button>
+      <button className="btn big sticky" onClick={go}>Vibe check →</button>
+    </div>
+  )
+}
+
+/* ---------------- Opening vibe check ---------------- */
+function Quiz({ g, onDone }) {
+  const [step, setStep] = useState(0) // 0..2 group questions, then players
+  const [ans, setAns] = useState({})
+  const [archs, setArchs] = useState([])
+  const [cover, setCover] = useState(true)
+  const nG = GROUP_QS.length
+  const n = g.players.length
+
+  const answerGroup = (key, v) => {
+    sfx.ding(); buzz(20)
+    setAns((a) => ({ ...a, [key]: v }))
+    setStep((s) => s + 1)
+  }
+  const answerPlayer = (a) => {
+    sfx.ding(); buzz(20)
+    const next = [...archs, a]
+    setArchs(next)
+    if (next.length >= n) onDone({ venue: ans.venue, intensity: ans.intensity, familiarity: ans.familiarity, archs: next })
+    else setCover(true)
+  }
+
+  if (step < nG) {
+    const q = GROUP_QS[step]
+    return (
+      <div key={step} className="stack pop">
+        <p className="who">Vibe check · {step + 1}/{nG + 1} · answer together</p>
+        <h2 className="shout">{q.q}</h2>
+        <div className="options">
+          {q.o.map((o) => (
+            <button key={o.label} className="opt" onClick={() => answerGroup(q.key, o.v)}>
+              <span className="opt-emoji">{o.emoji}</span>{o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const i = archs.length
+  const name = g.players[i].name
+  if (cover) {
+    return (
+      <div key={'c' + i} className="center stack pop">
+        <p className="who">Vibe check · {nG + 1}/{nG + 1} · one each</p>
+        <h2>Pass the phone to</h2>
+        <div className="holder">{name}</div>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setCover(false) }}>I'm {name}</button>
+      </div>
+    )
+  }
+  const keys = Object.keys(ARCHETYPES)
+  return (
+    <div key={'p' + i} className="stack pop">
+      <p className="who">{name}, be honest</p>
+      <h2 className="shout">{ARCH_Q}</h2>
+      <div className="options">
+        {keys.map((k) => (
+          <button key={k} className="opt" onClick={() => answerPlayer(k)}>
+            <span className="opt-emoji">{ARCHETYPES[k].emoji}</span>{ARCHETYPES[k].pick}
+          </button>
+        ))}
+      </div>
+      <button className="link" onClick={() => answerPlayer(keys[Math.floor(Math.random() * keys.length)])}>Surprise me 🎲</button>
+    </div>
+  )
+}
+
+function Profile({ g, onGo }) {
+  const archs = g.players.map((p) => p.arch)
+  const { top, games } = groupProfile(archs)
+  const [shown, setShown] = useState(0)
+  useEffect(() => {
+    if (shown > g.players.length) return
+    const t = setTimeout(() => { setShown((s) => s + 1); shown < g.players.length ? sfx.pass() : sfx.fanfare() }, shown === 0 ? 400 : 650)
+    return () => clearTimeout(t)
+  }, [shown])
+  return (
+    <div className="stack">
+      <p className="who center-text">Your squad is…</p>
+      <h2 className="shout center-text">{g.players.length === 2 ? GROUP_NAMES[top].replace('The ', 'The Duo: ') : GROUP_NAMES[top]}</h2>
+      <div className="arch-grid">
+        {g.players.map((p, i) => {
+          const a = ARCHETYPES[p.arch]
+          return (
+            <div key={i} className={'arch-card' + (i < shown ? ' in' : '')} style={{ transform: i < shown ? `rotate(${i % 2 ? 2 : -2}deg)` : undefined }}>
+              <span className="arch-emoji">{a.emoji}</span>
+              <b>{p.name}</b>
+              <span className="arch-label">{a.label}</span>
+              <small>{a.line}</small>
+            </div>
+          )
+        })}
+      </div>
+      {shown > g.players.length && (
+        <div className="land show">
+          <p className="tag center-text">Tuned for you: more {games.map((x) => `${GAMES[x].emoji} ${GAMES[x].title}`).join(' and ')}. Vibe: {g.intensity}.</p>
+          <button className="btn big" onClick={() => { sfx.whoosh(); onGo() }}>Spin the first game 🎰</button>
+        </div>
+      )}
     </div>
   )
 }
