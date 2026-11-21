@@ -85,9 +85,9 @@ export function pickPrompt(game, intensity, used) {
 }
 
 // Secret bomb fuse in ms. Random so nobody can count it.
-// Fuse is always 20 to 45 seconds, random so nobody can count it.
+// Fuse is always 10 to 20 seconds, random so nobody can count it.
 export function fuseMs() {
-  return 20000 + Math.floor(Math.random() * 25000) // 20 to 45 seconds
+  return 10000 + Math.floor(Math.random() * 10000) // 10 to 20 seconds, never more
 }
 
 // The group's dominant archetype (ties broken by order) and its top games.

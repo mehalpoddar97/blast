@@ -24,7 +24,7 @@ Friend groups in their 20s and 30s, at a dinner table, a house party, a cafe or 
 
 | Game | What happens | Scoring |
 |---|---|---|
-| 💣 **BLAST Bomb** | A category appears. Say one answer, tap PASS, hand the phone on. A secret 20–45 s fuse ticks faster and faster until it explodes. | Everyone except the holder +10 |
+| 💣 **BLAST Bomb** | A category appears. Say one answer, tap PASS, hand the phone on. A secret 10–20 s fuse ticks faster and faster until it explodes. | Everyone except the holder +10 |
 | 🎭 **Defend the Indefensible** | Argue an absurd opinion ("Being left on read is a green flag") for 30 s. A surprise PLOT TWIST can flip you to the other side mid-speech. | Group rates 1 to 5 🔥, +10 per 🔥 |
 | 👉 **Accusation Station** | One player secretly predicts who the group will point at. 3-2-1 POINT! | Right prediction +20, the accused gets a crown |
 | 📏 **Where's the Line?** | One player secretly places a situation on a 1 to 10 scale. The group argues and agrees on one guess. | Exact +20 each, off by 1 +10 each |
