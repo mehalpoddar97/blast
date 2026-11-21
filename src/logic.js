@@ -1,6 +1,7 @@
 import { GAMES, ARCHETYPES, BOMB, DEFEND, ACCUSE, LINE, AUCTION, promptsFor } from './content.js'
 
 export const POINTS = 10
+export const MAX_GAMES = 5 // a session is at most 5 games, then the final leaderboard
 
 const BANKS = { bomb: BOMB, defend: DEFEND, accuse: ACCUSE, line: LINE, auction: AUCTION }
 
@@ -32,7 +33,7 @@ export function pickGame(lastGame, playerCount, venue = 'lively', archs = [], fa
 // How many rounds an episode of this game lasts for this group.
 export function episodeLength(game, playerCount) {
   const n = GAMES[game].rounds
-  return n || Math.min(playerCount, 4)
+  return Math.min(n || playerCount, 3) // short episodes: max 3 rounds
 }
 
 // Pick a prompt the group has not seen this session. When the bank runs out, reuse.
@@ -47,10 +48,9 @@ export function pickPrompt(game, intensity, used) {
 }
 
 // Secret bomb fuse in ms. Random so nobody can count it.
-// Bigger groups get a longer fuse so the bomb actually travels round the circle.
-export function fuseMs(players = 4) {
-  const extra = Math.max(0, players - 4) * 2500
-  return 18000 + extra + Math.floor(Math.random() * 22000) // 18-40s, up to ~60s for 12
+// Fuse is always 30 to 60 seconds, random so nobody can count it.
+export function fuseMs() {
+  return 30000 + Math.floor(Math.random() * 30000)
 }
 
 // The group's dominant archetype (ties broken by order) and its top games.

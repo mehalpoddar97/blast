@@ -52,13 +52,13 @@ export const GAMES = {
     steps: [
       { icon: '🤫', big: '1 player predicts', small: 'secretly, on the phone' },
       { icon: '3️⃣2️⃣1️⃣', big: 'Everyone points', small: 'at the same time' },
-      { icon: '👑', big: 'Most fingers', small: 'gets crowned' },
+      { icon: '👑', big: 'Most votes', small: 'gets crowned' },
     ],
     score: 'Right prediction +20',
     rules: [
       'One player secretly predicts who the group will point at.',
       'On 3-2-1, EVERYONE points at once. No take-backs.',
-      'Predicted the most-pointed person? +20. The accused gets a crown 👑.',
+      'Predicted who the group picked? +20. The most-voted person gets a crown 👑.',
     ],
     rounds: 0,
   },

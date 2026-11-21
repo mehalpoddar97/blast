@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { GAMES, DURATIONS, GROUP_QS, ARCH_Q, ARCHETYPES, GROUP_NAMES } from './content.js'
-import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, POINTS } from './logic.js'
+import { pickGame, pickPrompt, episodeLength, fuseMs, groupProfile, POINTS, MAX_GAMES } from './logic.js'
+import { shareCard } from './share.js'
 import { sfx, buzz, unlock, isMuted, setMuted } from './sound.js'
 
 const SAVE_KEY = 'blast-game-v2'
@@ -12,6 +13,7 @@ const fresh = () => ({
   venue: 'lively',
   familiarity: 'friends',
   duration: 12,
+  gamesDone: 0,
   startedAt: null,
   roundNo: 0, // total rounds played this session
   lastGame: null,
@@ -66,6 +68,20 @@ function newRound(s, game) {
 export default function App() {
   const [g, setG] = useState(load)
   const [muted, setM] = useState(isMuted())
+  const [quit, setQuit] = useState(false)
+
+  // Leave the current game. keep=false throws away the points scored in it.
+  const leaveGame = (keep, to = 'episodeEnd') => {
+    setQuit(false)
+    setG((s) => {
+      const restore = !keep && s.episode?.startScores
+      const players = restore ? s.players.map((p, i) => ({ ...p, score: s.episode.startScores[i] ?? p.score })) : s.players
+      const inGame = !['episodeEnd', 'summary'].includes(s.screen)
+      return { ...s, players, screen: to, gamesDone: s.gamesDone + (inGame && s.episode?.done > 0 ? 1 : 0), round: s.round ? { ...s.round, scored: true } : s.round }
+    })
+    if (to === 'summary') sfx.fanfare(); else sfx.whoosh()
+  }
+  const scoredThisGame = g.episode?.startScores && g.players.some((p, i) => p.score !== g.episode.startScores[i])
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(g)) } catch {}
   }, [g])
@@ -80,7 +96,7 @@ export default function App() {
         ...s,
         screen: chosen ? 'rules' : 'slot',
         lastGame: game,
-        episode: { game, total: episodeLength(game, s.players.length), done: 0 },
+        episode: { game, total: episodeLength(game, s.players.length), done: 0, startScores: s.players.map((p) => p.score) },
         ...newRound(s, game),
       }
     })
@@ -146,7 +162,7 @@ export default function App() {
     slot: <Slot g={g} onDone={() => set({ screen: 'rules' })} />,
     rules: <Rules g={g} onGo={() => { sfx.whoosh(); set({ screen: 'play' }) }} />,
     play,
-    roundEnd: <RoundEnd g={g} onNext={nextRound} onEpisodeEnd={() => set({ screen: 'episodeEnd' })} />,
+    roundEnd: <RoundEnd g={g} onNext={nextRound} onEpisodeEnd={() => set((s) => ({ screen: 'episodeEnd', gamesDone: s.gamesDone + 1 }))} />,
     episodeEnd: <EpisodeEnd g={g} onRandom={() => startEpisode()} onPick={(id) => startEpisode(id)} onFinish={() => { sfx.fanfare(); set({ screen: 'summary' }) }} />,
     summary: (
       <Summary
@@ -164,7 +180,18 @@ export default function App() {
           g={g}
           muted={muted}
           onMute={() => { setMuted(!muted); setM(!muted) }}
-          onQuit={() => { if (confirm('End this BLAST and go home?')) setG(fresh()) }}
+          onQuit={() => { sfx.tap(); setQuit(true) }}
+        />
+      )}
+      {quit && (
+        <QuitMenu
+          g={g}
+          scored={scoredThisGame && !['episodeEnd', 'summary'].includes(g.screen)}
+          inGame={!['episodeEnd', 'summary'].includes(g.screen)}
+          onSwitch={(keep) => leaveGame(keep, 'episodeEnd')}
+          onEnd={(keep) => leaveGame(keep, 'summary')}
+          onHome={() => { setQuit(false); setG(fresh()) }}
+          onClose={() => setQuit(false)}
         />
       )}
       <main key={g.screen + (g.round?.step ?? '') + g.roundNo} className="screen">
@@ -190,13 +217,45 @@ function TopBar({ g, muted, onMute, onQuit }) {
         </div>
       )}
       <span className="logo-sm">BLAST</span>
-      <span className="muted tiny">{ep ? `${GAMES[ep.game].emoji} Round ${Math.min(ep.done + 1, ep.total)}/${ep.total}` : ''}</span>
+      <span className="muted tiny">{ep ? `Game ${Math.min(g.gamesDone + 1, MAX_GAMES)}/${MAX_GAMES} · ${GAMES[ep.game].emoji} ${Math.min(ep.done + 1, ep.total)}/${ep.total}` : ''}</span>
       <span>
         {ep && <button className="help-btn" onClick={() => { sfx.tap(); setHelp(true) }}>? Rules</button>}
         <button className="icon" onClick={onMute} aria-label="sound">{muted ? '🔇' : '🔊'}</button>
         <button className="link" onClick={onQuit}>Quit</button>
       </span>
     </header>
+  )
+}
+
+function QuitMenu({ g, scored, inGame, onSwitch, onEnd, onHome, onClose }) {
+  const [action, setAction] = useState(null) // 'switch' | 'end' waiting for the points question
+  const go = (a) => {
+    sfx.tap()
+    if (scored) return setAction(a)
+    a === 'switch' ? onSwitch(true) : onEnd(true)
+  }
+  const game = g.episode ? GAMES[g.episode.game] : null
+  return (
+    <div className="modal" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        {action ? (
+          <>
+            <h2 className="shout center-text">Count these points?</h2>
+            <p className="tag center-text">Points were scored in this round of {game?.title}. Keep them in the final tally?</p>
+            <button className="btn big" onClick={() => (action === 'switch' ? onSwitch(true) : onEnd(true))}>✅ Yes, keep them</button>
+            <button className="btn ghost" onClick={() => (action === 'switch' ? onSwitch(false) : onEnd(false))}>❌ No, scrap this game's points</button>
+          </>
+        ) : (
+          <>
+            <h2 className="shout center-text">Pause! ⏸️</h2>
+            {inGame && <button className="btn big" onClick={() => go('switch')}>🔀 Switch to another game</button>}
+            <button className="btn" onClick={() => go('end')}>👑 End & see the leaderboard</button>
+            <button className="btn ghost" onClick={() => { sfx.tap(); onHome() }}>🏠 Quit to home (new group)</button>
+            <button className="link" onClick={onClose}>Keep playing</button>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -247,7 +306,7 @@ function MiniBoard({ g }) {
       {list.map((p, k) => (
         <div key={p.i} className={'board-row' + (p.score === top && top > 0 ? ' lead' : '')}>
           <span className="rank">{p.score === top && top > 0 ? '👑' : k + 1}</span>
-          <span className="bname">{p.name}</span>
+          <span className="bname">{p.name}</span>{p.arch && <span className="arch">{ARCHETYPES[p.arch]?.emoji}</span>}
           <span className="bscore">{p.score}</span>
         </div>
       ))}
@@ -529,7 +588,7 @@ function Bomb({ g, setRound, onScore, onSkip }) {
         <h2 className="prompt">{r.prompt.q}</h2>
         <div className="bomb idle">💣</div>
         <p className="tag"><b>{holderName}</b> holds the bomb first.<br />Say one answer, tap PASS, hand it on. No repeats!</p>
-        <button className="btn big" onClick={() => { const t = Date.now(); sfx.whoosh(); setRound({ step: 'live', startedAt: t, endsAt: t + fuseMs(g.players.length) }) }}>Light the fuse</button>
+        <button className="btn big" onClick={() => { const t = Date.now(); sfx.whoosh(); setRound({ step: 'live', startedAt: t, endsAt: t + fuseMs() }) }}>Light the fuse</button>
         <button className="link" onClick={() => { sfx.tap(); onSkip() }}>New category</button>
       </div>
     )
@@ -730,8 +789,8 @@ function Accuse({ g, setRound, onScore, onSkip }) {
   }
   return (
     <div className="stack">
-      <h2 className="shout center-text">Count the fingers!</h2>
-      <p className="tag center-text">Who got the most? Tap them. Tie? Tap all of them.</p>
+      <h2 className="shout center-text">Who got the most votes?</h2>
+      <p className="tag center-text">Look around: who did the most people point at? Tap them. Tie? Tap all of them.</p>
       <div className="chips row wrap">
         {g.players.map((p, i) => (
           <button key={i} className={'chip slim' + (r.accused.includes(i) ? ' on' : '')} onClick={() => toggle(i)}>{p.name}</button>
@@ -771,7 +830,7 @@ function Line({ g, setRound, onScore, onSkip }) {
       <div className="stack">
         <div className="name-banner" style={{ background: game.color }}>🤫 {name}'s SECRET pick</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
-        <p className="tag center-text">Tap your number</p>
+        <p className="tag center-text">How <b>{r.prompt.hi.toLowerCase()}</b> is this to you? Tap 1 to 10.</p>
         <Scale />
         <button className="btn big" disabled={val === null} onClick={() => { sfx.ding(); setRound({ secret: val, step: 'handoff' }) }}>{val === null ? 'Pick a number first' : `Lock ${val} 🔒`}</button>
       </div>
@@ -803,7 +862,7 @@ function Line({ g, setRound, onScore, onSkip }) {
       <div className="stack">
         <div className="name-banner" style={{ background: game.color }}>🧠 Where did {name} put it?</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
-        <p className="tag center-text">Argue it out. Agree on ONE number.</p>
+        <p className="tag center-text">How <b>{r.prompt.hi.toLowerCase()}</b> did {name} rate it? Argue, then tap ONE number.</p>
         <Scale />
         <button className="btn big" disabled={val === null} onClick={lock}>{val === null ? 'Pick the group guess' : `Lock group guess: ${val}`}</button>
       </div>
@@ -812,31 +871,32 @@ function Line({ g, setRound, onScore, onSkip }) {
   return null
 }
 
-// 1-10 as big colourful tiles (cool to hot) instead of a fiddly slider.
+// 1-10 on ONE line: a thermometer from the mild end to the wild end. Tap a number.
 const SCALE_EMOJI = ['😇', '🙂', '😌', '🤔', '😐', '🤨', '😬', '😳', '🤯', '😱']
 function NumberScale({ val, setVal, lo, hi }) {
   return (
     <div className="nscale">
       <div className="nscale-ends">
-        <span>😇 {lo}</span>
-        <span>{hi} 😱</span>
+        <span className="lo">😇 {lo}</span>
+        <span className="hi">{hi} 😱</span>
       </div>
-      <div className="nscale-grid">
+      <div className="nscale-row">
         {SCALE_EMOJI.map((e, k) => {
           const n = k + 1
           return (
             <button
               key={n}
-              className={'ntile' + (val === n ? ' on' : '') + (val !== null && val !== n ? ' dim' : '')}
+              className={'ncell' + (val === n ? ' on' : '')}
               style={{ background: `hsl(${140 - k * 15}, 90%, 55%)` }}
               onClick={() => { sfx.slotTick(); sfx.tap(); buzz(15); setVal(n) }}
             >
-              <b>{n}</b><span>{e}</span>
+              {val === n && <span className="ncell-emoji">{e}</span>}
+              {n}
             </button>
           )
         })}
       </div>
-      <div className="nscale-bar" />
+      <div className="nscale-arrow"><span>milder</span><span>wilder</span></div>
     </div>
   )
 }
@@ -928,7 +988,7 @@ function RoundEnd({ g, onNext, onEpisodeEnd }) {
       <h2 className="center-text">{g.round.headline}</h2>
       <MiniBoard g={g} />
       {last ? (
-        <button className="btn big" onClick={() => { sfx.fanfare(); onEpisodeEnd() }}>Episode over 🏁</button>
+        <button className="btn big" onClick={() => { sfx.fanfare(); onEpisodeEnd() }}>Game done 🏁</button>
       ) : (
         <button className="btn big" onClick={onNext}>Next round →</button>
       )}
@@ -939,10 +999,20 @@ function RoundEnd({ g, onNext, onEpisodeEnd }) {
 function EpisodeEnd({ g, onRandom, onPick, onFinish }) {
   const elapsed = g.startedAt ? (Date.now() - g.startedAt) / 60000 : 0
   const timeUp = g.duration > 0 && elapsed >= g.duration
-  const others = Object.values(GAMES)
+  const others = Object.values(GAMES).filter((x) => x.id !== g.episode.game)
+  const over = g.gamesDone >= MAX_GAMES
+  if (over) {
+    return (
+      <div className="center stack">
+        <h2 className="shout">That's all 5 games! 🏁</h2>
+        <MiniBoard g={g} />
+        <button className="btn big" onClick={onFinish}>Crown the winner 👑</button>
+      </div>
+    )
+  }
   return (
     <div className="stack">
-      <h2 className="center-text shout">{GAMES[g.episode.game].emoji} Episode done!</h2>
+      <h2 className="center-text shout">{GAMES[g.episode.game].emoji} Game {g.gamesDone} of {MAX_GAMES} done!</h2>
       <MiniBoard g={g} />
       {timeUp && <p className="center-text tag">⏰ You hit your {g.duration}-minute target!</p>}
       <button className="btn big" onClick={onRandom}>Next game 🎰</button>
@@ -955,6 +1025,32 @@ function EpisodeEnd({ g, onRandom, onPick, onFinish }) {
         ))}
       </div>
       <button className={'btn ' + (timeUp ? '' : 'ghost')} onClick={onFinish}>Finish & crown the winner 👑</button>
+    </div>
+  )
+}
+
+function ShareBox({ g }) {
+  const [img, setImg] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const archs = g.players.map((p) => p.arch).filter(Boolean)
+  const squad = archs.length ? GROUP_NAMES[groupProfile(archs).top] : 'The Squad'
+  const go = async () => {
+    sfx.tap(); setBusy(true)
+    try {
+      const r = await shareCard({ players: g.players, squad })
+      if (typeof r === 'string' && r.startsWith('data:')) setImg(r)
+    } catch {}
+    setBusy(false)
+  }
+  return (
+    <div className="sharebox">
+      <button className="btn insta" onClick={go} disabled={busy}>📸 {busy ? 'Making your card…' : 'Share to Instagram story'}</button>
+      {img && (
+        <>
+          <img className="card-preview" src={img} alt="BLAST leaderboard card" />
+          <p className="muted tiny center-text">Saved to downloads. Or long-press the card to save it.</p>
+        </>
+      )}
     </div>
   )
 }
@@ -972,6 +1068,7 @@ function Summary({ g, onAgain, onHome }) {
       {top > 0 && <div className="holder">{winners.map((w) => w.name).join(' & ')}</div>}
       <p className="tag">{top} points · {rounds} round{rounds === 1 ? '' : 's'} of chaos</p>
       <MiniBoard g={g} />
+      <ShareBox g={g} />
       <button className="btn big" onClick={onAgain}>Play again, same squad</button>
       <button className="btn ghost" onClick={onHome}>New group</button>
     </div>
