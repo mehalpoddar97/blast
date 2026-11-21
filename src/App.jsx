@@ -33,14 +33,23 @@ function newRound(s, game) {
   const prompt = pickPrompt(game, s.intensity, s.used)
   const n = s.players.length
   const twistChance = { chill: 0.3, spicy: 0.5, unhinged: 0.7 }[s.intensity]
+  // Spotlight: whoever has had the fewest turns goes next (ties go round the circle),
+  // so with 12 players everyone gets a turn before anyone gets a second one.
+  const startAt = s.roundNo % n
+  let holder = startAt
+  for (let k = 0; k < n; k++) {
+    const i = (startAt + k) % n
+    if ((s.players[i].spots || 0) < (s.players[holder].spots || 0)) holder = i
+  }
   return {
     used: [...s.used, prompt.id],
+    players: s.players.map((p, i) => (i === holder ? { ...p, spots: (p.spots || 0) + 1 } : p)),
     round: {
       game,
       prompt,
       step: 'ready',
       // rotate who starts / who defends so nobody hogs the spotlight
-      holder: s.roundNo % n,
+      holder,
       passes: 0,
       endsAt: null,
       twist: game === 'defend' && Math.random() < twistChance,
@@ -169,15 +178,60 @@ export default function App() {
 
 function TopBar({ g, muted, onMute, onQuit }) {
   const ep = g.episode
+  const [help, setHelp] = useState(false)
   return (
     <header className="topbar">
+      {help && ep && (
+        <div className="modal" onClick={() => setHelp(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <HowTo game={ep.game} />
+            <button className="btn big" onClick={() => { sfx.tap(); setHelp(false) }}>Got it 👍</button>
+          </div>
+        </div>
+      )}
       <span className="logo-sm">BLAST</span>
       <span className="muted tiny">{ep ? `${GAMES[ep.game].emoji} Round ${Math.min(ep.done + 1, ep.total)}/${ep.total}` : ''}</span>
       <span>
+        {ep && <button className="help-btn" onClick={() => { sfx.tap(); setHelp(true) }}>? Rules</button>}
         <button className="icon" onClick={onMute} aria-label="sound">{muted ? '🔇' : '🔊'}</button>
         <button className="link" onClick={onQuit}>Quit</button>
       </span>
     </header>
+  )
+}
+
+// Infographic rules: 3 picture steps + how you score.
+function HowTo({ game: id }) {
+  const game = GAMES[id]
+  return (
+    <div className="howto">
+      <div className="howto-head" style={{ background: game.color }}>
+        <span>{game.emoji}</span>{game.title}
+      </div>
+      {game.steps.map((st, k) => (
+        <div key={k} className="step" style={{ animationDelay: `${k * 0.15}s` }}>
+          <span className="step-n" style={{ background: game.color }}>{k + 1}</span>
+          <span className="step-icon">{st.icon}</span>
+          <span className="step-text"><b>{st.big}</b><small>{st.small}</small></span>
+        </div>
+      ))}
+      <div className="score-chip">🏆 {game.score}</div>
+    </div>
+  )
+}
+
+// Who's in the spotlight, and who's next. Scrolls sideways for big groups.
+function TurnStrip({ g, current }) {
+  const n = g.players.length
+  return (
+    <div className="strip">
+      {g.players.map((p, i) => (
+        <span key={i} className={'strip-name' + (i === current ? ' on' : '') + ((p.spots || 0) > 0 && i !== current ? ' done' : '')}>
+          {i === current ? '⭐ ' : ''}{p.name}
+        </span>
+      ))}
+      {n > 4 && <span className="strip-hint">⭐ = spotlight now · everyone gets a turn before repeats</span>}
+    </div>
   )
 }
 
@@ -428,14 +482,10 @@ function Rules({ g, onGo }) {
   const game = GAMES[g.episode.game]
   return (
     <div className="center stack">
-      <div className="game-badge" style={{ background: game.color }}>{game.emoji}</div>
-      <h2 className="shout">{game.title}</h2>
       <p className="tag">{game.promise}</p>
       {game.tags && <p className="tags">{game.tags}</p>}
-      <ol className="rules">
-        {game.rules.map((r) => <li key={r}>{r}</li>)}
-      </ol>
-      <p className="muted tiny">{g.episode.total} rounds in this episode</p>
+      <HowTo game={game.id} />
+      <p className="muted tiny">{g.episode.total} rounds · tap "? Rules" any time during play</p>
       <button className="btn big" onClick={onGo}>Let's go 🔥</button>
     </div>
   )
@@ -479,7 +529,7 @@ function Bomb({ g, setRound, onScore, onSkip }) {
         <h2 className="prompt">{r.prompt.q}</h2>
         <div className="bomb idle">💣</div>
         <p className="tag"><b>{holderName}</b> holds the bomb first.<br />Say one answer, tap PASS, hand it on. No repeats!</p>
-        <button className="btn big" onClick={() => { const t = Date.now(); sfx.whoosh(); setRound({ step: 'live', startedAt: t, endsAt: t + fuseMs() }) }}>Light the fuse</button>
+        <button className="btn big" onClick={() => { const t = Date.now(); sfx.whoosh(); setRound({ step: 'live', startedAt: t, endsAt: t + fuseMs(g.players.length) }) }}>Light the fuse</button>
         <button className="link" onClick={() => { sfx.tap(); onSkip() }}>New category</button>
       </div>
     )
@@ -544,7 +594,9 @@ function Defend({ g, setRound, onScore, onSkip }) {
   if (r.step === 'ready') {
     return (
       <div className="center stack">
-        <p className="who" style={{ color: game.color }}>{name}, you must defend:</p>
+        <TurnStrip g={g} current={r.holder} />
+        <div className="spotlight small">{name}</div>
+        <p className="who" style={{ color: game.color }}>you must defend:</p>
         <h2 className="prompt quote">“{r.prompt.q}”</h2>
         <p className="tag">Read it out loud. You get 30 seconds. Be dramatic. Be a lawyer. Be shameless.</p>
         <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'live' }) }}>Start my 30 seconds</button>
@@ -619,9 +671,11 @@ function Accuse({ g, setRound, onScore, onSkip }) {
   if (r.step === 'ready') {
     return (
       <div className="center stack">
-        <p className="who" style={{ color: game.color }}>The question</p>
+        <TurnStrip g={g} current={me} />
+        <p className="who" style={{ color: game.color }}>Predictor this round</p>
+        <div className="spotlight small">{name}</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
-        <p className="tag">Pass the phone to <b>{name}</b>.<br />Everyone else, look away 👀</p>
+        <p className="tag"><b>{name}</b> takes the phone. Everyone else, look away 👀</p>
         <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'predict' }) }}>I'm {name}</button>
         <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Different question</button>
       </div>
@@ -694,23 +748,20 @@ function Line({ g, setRound, onScore, onSkip }) {
   const game = GAMES.line
   const me = r.holder
   const name = g.players[me].name
-  const [val, setVal] = useState(5)
+  const [val, setVal] = useState(null) // nothing picked until someone taps
 
   const Scale = () => (
-    <div className="line">
-      <div className="line-num">{val}</div>
-      <input type="range" min="1" max="10" step="1" value={val} onChange={(e) => { setVal(Number(e.target.value)); sfx.slotTick() }} />
-      <div className="line-ends"><span>1 · {r.prompt.lo}</span><span>10 · {r.prompt.hi}</span></div>
-    </div>
+    <NumberScale val={val} setVal={setVal} lo={r.prompt.lo} hi={r.prompt.hi} />
   )
 
   if (r.step === 'ready') {
     return (
       <div className="center stack">
-        <p className="who" style={{ color: game.color }}>Mind reader this round</p>
-        <div className="holder">{name}</div>
-        <p className="tag">Take the phone. Everyone else, look away 👀</p>
-        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'set' }) }}>I'm {name}</button>
+        <TurnStrip g={g} current={me} />
+        <p className="who" style={{ color: game.color }}>This round's mind reader</p>
+        <div className="spotlight">{name}</div>
+        <p className="tag"><b>{name}</b> takes the phone.<br />Everyone else, look away 👀</p>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'set' }) }}>I'm {name} 🙋</button>
         <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Different situation</button>
       </div>
     )
@@ -718,10 +769,11 @@ function Line({ g, setRound, onScore, onSkip }) {
   if (r.step === 'set') {
     return (
       <div className="stack">
-        <p className="who" style={{ color: game.color }}>{name}, where's YOUR line?</p>
+        <div className="name-banner" style={{ background: game.color }}>🤫 {name}'s SECRET pick</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
+        <p className="tag center-text">Tap your number</p>
         <Scale />
-        <button className="btn big" onClick={() => { sfx.ding(); setRound({ secret: val, step: 'handoff' }) }}>Lock my secret 🔒</button>
+        <button className="btn big" disabled={val === null} onClick={() => { sfx.ding(); setRound({ secret: val, step: 'handoff' }) }}>{val === null ? 'Pick a number first' : `Lock ${val} 🔒`}</button>
       </div>
     )
   }
@@ -730,7 +782,9 @@ function Line({ g, setRound, onScore, onSkip }) {
       <div className="center stack">
         <div className="burst">🤐</div>
         <h2 className="shout">Locked!</h2>
-        <p className="tag">Hand the phone to the group.<br /><b>{name}</b>, no hints, no faces.</p>
+        <p className="tag">Hand the phone to the group.</p>
+        <div className="spotlight small">{name}</div>
+        <p className="tag">no hints, no faces!</p>
         <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'guess' }) }}>We have the phone</button>
       </div>
     )
@@ -747,15 +801,44 @@ function Line({ g, setRound, onScore, onSkip }) {
     }
     return (
       <div className="stack">
-        <p className="who" style={{ color: game.color }}>Group: where did {name} put it?</p>
+        <div className="name-banner" style={{ background: game.color }}>🧠 Where did {name} put it?</div>
         <h2 className="prompt quote">{r.prompt.q}</h2>
         <p className="tag center-text">Argue it out. Agree on ONE number.</p>
         <Scale />
-        <button className="btn big" onClick={lock}>Lock group guess</button>
+        <button className="btn big" disabled={val === null} onClick={lock}>{val === null ? 'Pick the group guess' : `Lock group guess: ${val}`}</button>
       </div>
     )
   }
   return null
+}
+
+// 1-10 as big colourful tiles (cool to hot) instead of a fiddly slider.
+const SCALE_EMOJI = ['😇', '🙂', '😌', '🤔', '😐', '🤨', '😬', '😳', '🤯', '😱']
+function NumberScale({ val, setVal, lo, hi }) {
+  return (
+    <div className="nscale">
+      <div className="nscale-ends">
+        <span>😇 {lo}</span>
+        <span>{hi} 😱</span>
+      </div>
+      <div className="nscale-grid">
+        {SCALE_EMOJI.map((e, k) => {
+          const n = k + 1
+          return (
+            <button
+              key={n}
+              className={'ntile' + (val === n ? ' on' : '') + (val !== null && val !== n ? ' dim' : '')}
+              style={{ background: `hsl(${140 - k * 15}, 90%, 55%)` }}
+              onClick={() => { sfx.slotTick(); sfx.tap(); buzz(15); setVal(n) }}
+            >
+              <b>{n}</b><span>{e}</span>
+            </button>
+          )
+        })}
+      </div>
+      <div className="nscale-bar" />
+    </div>
+  )
 }
 
 /* ---------------- Going Once, Going Twice ---------------- */

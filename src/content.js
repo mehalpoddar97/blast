@@ -9,6 +9,12 @@ export const GAMES = {
     color: '#ff2e63',
     promise: "Don't be holding it when it blows.",
     tags: 'Loud • Panic • Fast',
+    steps: [
+      { icon: '🗣️', big: 'Say 1 answer', small: 'that fits the category' },
+      { icon: '👉📱', big: 'Tap PASS', small: 'hand the phone to your left' },
+      { icon: '💥', big: "Don't hold it", small: 'when it explodes' },
+    ],
+    score: 'Everyone else +10',
     rules: [
       'A category appears. Say ONE answer out loud, tap PASS, hand the phone on.',
       'The bomb has a secret timer. It ticks faster and faster.',
@@ -23,6 +29,12 @@ export const GAMES = {
     color: '#ffb800',
     promise: "Convince everyone you're right about something absurd.",
     tags: 'Persuasion • Performance • Chaos',
+    steps: [
+      { icon: '📜', big: 'Get a terrible opinion', small: 'read it out loud' },
+      { icon: '🎤⏱️', big: 'Defend it 30s', small: 'watch out for a PLOT TWIST 🔄' },
+      { icon: '🔥', big: 'Group rates 1-5', small: 'how convincing was that?' },
+    ],
+    score: '+10 per 🔥',
     rules: [
       'One player gets a terrible opinion. 30 seconds to defend it like a lawyer.',
       'Watch out: a PLOT TWIST may force you to switch sides mid-speech.',
@@ -37,6 +49,12 @@ export const GAMES = {
     color: '#00e0ff',
     promise: 'Predict who the group will throw under the bus.',
     tags: 'Social • Revealing • Funny',
+    steps: [
+      { icon: '🤫', big: '1 player predicts', small: 'secretly, on the phone' },
+      { icon: '3️⃣2️⃣1️⃣', big: 'Everyone points', small: 'at the same time' },
+      { icon: '👑', big: 'Most fingers', small: 'gets crowned' },
+    ],
+    score: 'Right prediction +20',
     rules: [
       'One player secretly predicts who the group will point at.',
       'On 3-2-1, EVERYONE points at once. No take-backs.',
@@ -51,6 +69,12 @@ export const GAMES = {
     color: '#9dff3b',
     promise: "Read your friend's mind on a 1 to 10 scale.",
     tags: 'Opinions • Arguments • Chemistry',
+    steps: [
+      { icon: '🤫', big: '1 player picks 1-10', small: 'secretly' },
+      { icon: '🗯️', big: 'Group argues', small: 'and agrees on ONE number' },
+      { icon: '🎯', big: 'Reveal', small: 'how close were you?' },
+    ],
+    score: 'Exact +20 · Off by 1 +10 (everyone)',
     rules: [
       'One player secretly puts the situation on a scale from 1 to 10.',
       'Everyone else argues it out and agrees on ONE guess.',
@@ -65,6 +89,12 @@ export const GAMES = {
     color: '#b14dff',
     promise: 'Bid on your own confidence. Then prove it.',
     tags: 'Competitive • Fast • Loud',
+    steps: [
+      { icon: '🙋', big: 'Bid out loud', small: '"I can name 6!"' },
+      { icon: '🔨', big: 'Highest bid wins', small: 'Going once, twice, SOLD!' },
+      { icon: '⏱️', big: 'Name them in 30s', small: 'group taps the counter' },
+    ],
+    score: 'Hit it +30 · Miss = others +10',
     rules: [
       'Out loud, bid how many answers you can name in 30 seconds.',
       'Highest bidder takes the challenge. Group taps the counter.',

@@ -47,8 +47,10 @@ export function pickPrompt(game, intensity, used) {
 }
 
 // Secret bomb fuse in ms. Random so nobody can count it.
-export function fuseMs() {
-  return 18000 + Math.floor(Math.random() * 22000) // 18 to 40 seconds
+// Bigger groups get a longer fuse so the bomb actually travels round the circle.
+export function fuseMs(players = 4) {
+  const extra = Math.max(0, players - 4) * 2500
+  return 18000 + extra + Math.floor(Math.random() * 22000) // 18-40s, up to ~60s for 12
 }
 
 // The group's dominant archetype (ties broken by order) and its top games.
