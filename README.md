@@ -4,7 +4,7 @@
 
 > Same app. Different people. Completely different chaos.
 
-**Play now:** https://mehalpoddar97.github.io/mehalshivani/
+**Play now:** https://mehalpoddar97.github.io/blast/
 
 Built from zero at Vibe Coders Hackathon Edition 3 (Kolkata, 21 Nov 2026), *Play* track, by Mehal Poddar and Shivani Bagaria.
 
@@ -14,30 +14,29 @@ Friend groups in their 20s and 30s, at a dinner table, a house party, a cafe or 
 
 ## How to play (30 seconds)
 
-1. Open the link. Tap **Start a BLAST**.
-2. Type everyone's names, pick a vibe (**Chill / Spicy / Unhinged**), where you are, and how long you want to play.
-3. The **mystery wheel** picks a mini-game. Read the 3-line rules.
-4. Pass the phone. Each person plays their turn privately, then hands it on.
-5. Big reveal, +10 BLAST points for every correct call, leaderboard, **Next round**.
+1. Open the link. Tap **Start a BLAST**, type everyone's names.
+2. **Vibe check:** the group answers 3 taps together (where are you, how well do you know each other, roast tolerance), then each player picks their party move and gets an archetype card: 😈 Instigator, 🧠 Strategist, 🎤 Performer or 🫶 Connector.
+3. The **slot machine** picks a game tuned to your squad. Read the 3-line rules.
+4. Play a 2 to 4 round **episode**. Then **Next game 🎰** for the same group, or pick one yourself. Scores carry over.
+5. Finish whenever you like: the winner gets crowned (ties are joint winners).
 
-A round takes 1 to 3 minutes. A new player is in as soon as their name is typed.
+## The five games
 
-## The mini-games
-
-| Game | What you do | Scoring |
+| Game | What happens | Scoring |
 |---|---|---|
-| 🧠 **Same Brain Cell** | Secretly pick your answer to a 4-option question, then predict what the named friend picked. | Correct prediction = +10 |
-| 📏 **Where's the Line?** | Secretly rate an absurd situation 1 to 10 ("ketchup on dosa"), then guess your friend's rating. | Exact or off by 1 = +10 |
-| 🔨 **Going Once, Going Twice** | Bid out loud on how many answers you can name in 30 s. Highest bidder plays against a live timer and tap counter. | Group confirms you hit your bid = +10 |
+| 💣 **BLAST Bomb** | A category appears. Say one answer, tap PASS, hand the phone on. A secret fuse ticks faster and faster until it explodes. | Everyone except the holder +10 |
+| 🎭 **Defend the Indefensible** | Argue an absurd opinion ("Being left on read is a green flag") for 30 s. A surprise PLOT TWIST can flip you to the other side mid-speech. | Group rates 1 to 5 🔥, +10 per 🔥 |
+| 👉 **Accusation Station** | One player secretly predicts who the group will point at. 3-2-1 POINT! | Right prediction +20, the accused gets a crown |
+| 📏 **Where's the Line?** | One player secretly places a situation on a 1 to 10 scale. The group argues and agrees on one guess. | Exact +20 each, off by 1 +10 each |
+| 🔨 **Going Once, Going Twice** | Bid out loud on how many answers you can name in 30 s. SOLD! Live timer and tap counter. | Hit your bid +30, fall short = everyone else +10 |
 
 ## What makes it different
 
-- **Truly one phone.** Private answers are hidden behind a "pass the phone to…" screen, so nobody sees anyone else's pick before the reveal.
-- **It adapts to the group.** Vibe filters which prompts can appear. Venue changes which games come up (fewer shout-out-loud auctions in a quiet cafe). Player count changes the mix (more auctions with 3+).
-- **Fair pairings.** Guessing games use a rotating round-robin: everyone guesses exactly one person and is guessed by exactly one person, and pairs change every round.
-- **The wheel never lies.** The game is chosen first (weighted, never the same game twice in a row), then the wheel animates to it.
-- **Never stuck.** Skip any prompt, refresh any time (the game is saved on the phone), time target ends with "One more round" or crowning the winner. Ties are joint winners.
-- **Safe by design.** No accounts, no data leaves the phone, no AI calls at play time. All 60+ prompts are pre-written; "Unhinged" means absurd, never mean.
+- **Truly one phone.** Secret picks hide behind "pass the phone to…" screens.
+- **It adapts to the group.** Roast tolerance filters the 120+ pre-written prompts (Chill, Spicy, Unhinged). Venue, how well you know each other, and each player's archetype weight which games the slot machine lands on. The machine never repeats the last game.
+- **Game-show energy.** Maximalist sticker design, slot machine, countdowns, explosions, and every sound synthesised live in the browser (no audio files). Haptics on Android. Mute button in the corner.
+- **Never stuck.** Skip any prompt, refresh any time (the game is saved on the phone), time target nudges you to crown a winner or keep going.
+- **Safe by design.** No accounts, no data leaves the phone, no AI calls at play time. "Unhinged" means absurd, never mean.
 
 ## Tech
 
@@ -50,10 +49,11 @@ npm run build    # production build in dist/
 ```
 
 - `src/content.js` – all games, rules and prompts
-- `src/logic.js` – pairings, game picker, prompt picker, scoring
+- `src/logic.js` – game picker, prompt picker, group profile
 - `src/App.jsx` – screens
+- `src/sound.js` – Web Audio sound effects
 
 ## Decisions made for the hackathon
 
 - One-phone pass-and-play shipped first; online rooms on separate phones are the next step.
-- Teams, the personality quiz and AI-generated prompts were cut to keep the core loop solid.
+- Teams and AI-generated prompts were cut to keep the core loop solid.
