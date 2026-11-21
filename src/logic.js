@@ -1,64 +1,45 @@
-import { BRAIN, LINE, AUCTION, promptsFor } from './content.js'
+import { GAMES, BOMB, DEFEND, promptsFor } from './content.js'
 
 export const POINTS = 10
 
-const BANKS = { brain: BRAIN, line: LINE, auction: AUCTION }
+const BANKS = { bomb: BOMB, defend: DEFEND }
 
-// Who guesses whom: a shifted round-robin. Every player is a target exactly once,
-// nobody targets themselves, and the shift rotates each round so pairings change.
-export function targetsFor(n, roundNo) {
-  if (n < 2) return []
-  const shift = 1 + (roundNo % (n - 1))
-  return Array.from({ length: n }, (_, i) => (i + shift) % n)
-}
-
-// Weighted pick of the next mini-game. Never repeats the previous game.
-// Two-player groups lean towards the guessing games; bigger groups get more auctions.
-// Venue matters too: a quiet cafe gets fewer shout-out-loud auctions, a house party gets more.
+// Weighted pick of the next game for the episode. Never repeats the previous game
+// when another one exists. Quiet venues get fewer loud bomb rounds.
 export function pickGame(lastGame, playerCount, venue = 'lively') {
   const weights = {
-    brain: 4,
-    line: 3,
-    auction: (playerCount >= 3 ? 3 : 2) + (venue === 'quiet' ? -1 : 1),
+    bomb: venue === 'quiet' ? 2 : 4,
+    defend: playerCount >= 3 ? 4 : 3,
   }
-  const pool = Object.keys(weights).filter((g) => g !== lastGame)
-  const total = pool.reduce((s, g) => s + weights[g], 0)
+  let pool = Object.keys(GAMES).filter((g) => g !== lastGame)
+  if (pool.length === 0) pool = Object.keys(GAMES)
+  const total = pool.reduce((s, g) => s + (weights[g] || 3), 0)
   let r = Math.random() * total
   for (const g of pool) {
-    r -= weights[g]
+    r -= weights[g] || 3
     if (r <= 0) return g
   }
   return pool[0]
 }
 
-// Pick a prompt the group has not seen this session. When the bank runs out, reshuffle.
+// How many rounds an episode of this game lasts for this group.
+export function episodeLength(game, playerCount) {
+  const n = GAMES[game].rounds
+  return n || Math.min(playerCount, 4)
+}
+
+// Pick a prompt the group has not seen this session. When the bank runs out, reuse.
 export function pickPrompt(game, intensity, used) {
   const bank = promptsFor(BANKS[game], intensity)
   let fresh = bank.filter((p) => !used.includes(p.id))
   if (fresh.length === 0) fresh = bank
-  // Prefer the chosen intensity itself, so Spicy feels spicy.
+  // Lean towards the chosen intensity so Unhinged actually feels unhinged.
   const exact = fresh.filter((p) => p.i === intensity)
-  const pool = exact.length && Math.random() < 0.65 ? exact : fresh
+  const pool = exact.length && Math.random() < 0.75 ? exact : fresh
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
-// Score a guessing round. Returns per-player result rows; never trusts anything but recorded answers.
-export function scoreGuessRound(game, players, answers, guesses, targets) {
-  return players.map((p, i) => {
-    const t = targets[i]
-    const actual = answers[t]
-    const guess = guesses[i]
-    const hit =
-      game === 'line' ? Math.abs(Number(actual) - Number(guess)) <= 1 : actual === guess
-    return { player: i, target: t, guess, actual, hit, points: hit ? POINTS : 0 }
-  })
-}
-
-export function shuffle(a) {
-  const b = [...a]
-  for (let i = b.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[b[i], b[j]] = [b[j], b[i]]
-  }
-  return b
+// Secret bomb fuse in ms. Random so nobody can count it.
+export function fuseMs() {
+  return 18000 + Math.floor(Math.random() * 22000) // 18 to 40 seconds
 }

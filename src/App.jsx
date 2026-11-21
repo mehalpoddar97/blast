@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { GAMES, INTENSITIES, DURATIONS, VENUES } from './content.js'
-import { pickGame, pickPrompt, scoreGuessRound, targetsFor, POINTS } from './logic.js'
+import { pickGame, pickPrompt, episodeLength, fuseMs, POINTS } from './logic.js'
+import { sfx, buzz, unlock, isMuted, setMuted } from './sound.js'
 
-const SAVE_KEY = 'blast-game-v1'
+const SAVE_KEY = 'blast-game-v2'
 
 const fresh = () => ({
   screen: 'home',
   players: [],
-  intensity: 'chill',
+  intensity: 'spicy',
   venue: 'lively',
   duration: 12,
   startedAt: null,
-  roundNo: 0,
+  roundNo: 0, // total rounds played this session
   lastGame: null,
   used: [],
+  episode: null, // { game, total, done }
   round: null,
   history: [],
 })
@@ -26,137 +28,158 @@ function load() {
   return fresh()
 }
 
-function buzz(ms = 30) {
-  try { navigator.vibrate && navigator.vibrate(ms) } catch {}
+function newRound(s, game) {
+  const prompt = pickPrompt(game, s.intensity, s.used)
+  const n = s.players.length
+  const twistChance = { chill: 0.3, spicy: 0.5, unhinged: 0.7 }[s.intensity]
+  return {
+    used: [...s.used, prompt.id],
+    round: {
+      game,
+      prompt,
+      step: 'ready',
+      // rotate who starts / who defends so nobody hogs the spotlight
+      holder: s.roundNo % n,
+      passes: 0,
+      endsAt: null,
+      twist: game === 'defend' && Math.random() < twistChance,
+    },
+  }
 }
 
 export default function App() {
   const [g, setG] = useState(load)
+  const [muted, setM] = useState(isMuted())
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(g)) } catch {}
   }, [g])
   const set = (patch) => setG((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))
   const setRound = (patch) => setG((s) => ({ ...s, round: { ...s.round, ...patch } }))
 
-  const startRound = () =>
+  // Start a new episode of a given (or random) game for the same group.
+  const startEpisode = (chosen) =>
     setG((s) => {
-      const game = pickGame(s.lastGame, s.players.length, s.venue)
-      const prompt = pickPrompt(game, s.intensity, s.used)
-      const n = s.players.length
+      const game = chosen || pickGame(s.lastGame, s.players.length, s.venue)
       return {
         ...s,
-        screen: 'wheel',
+        screen: chosen ? 'rules' : 'slot',
         lastGame: game,
-        used: [...s.used, prompt.id],
-        round: {
-          game,
-          prompt,
-          targets: targetsFor(n, s.roundNo),
-          // rotate who goes first each round
-          order: Array.from({ length: n }, (_, k) => (k + s.roundNo) % n),
-          turn: 0,
-          step: 'pass',
-          answers: {},
-          guesses: {},
-          opener: s.roundNo % n,
-          bidder: null,
-          bid: 3,
-          count: 0,
-        },
+        episode: { game, total: episodeLength(game, s.players.length), done: 0 },
+        ...newRound(s, game),
       }
     })
 
-  // Swap the prompt (Skip prompt), keeping the same game and nobody's points change.
+  const nextRound = () => setG((s) => ({ ...s, screen: 'play', ...newRound(s, s.episode.game) }))
+
   const skipPrompt = () =>
     setG((s) => {
       const prompt = pickPrompt(s.round.game, s.intensity, s.used)
-      return {
-        ...s,
-        used: [...s.used, prompt.id],
-        round: { ...s.round, prompt, turn: 0, step: 'pass', answers: {}, guesses: {}, bidder: null, bid: 3, count: 0 },
-      }
+      return { ...s, used: [...s.used, prompt.id], round: { ...s.round, prompt } }
     })
 
-  const applyScores = (results) =>
+  // results: [{ player, points, note }]. Idempotent: a round can only score once.
+  const applyScores = (results, headline) =>
     setG((s) => {
-      if (s.round.scored) return s // idempotent: a round can only score once
+      if (s.round.scored) return s
       const players = s.players.map((p, i) => {
         const r = results.find((x) => x.player === i)
         if (!r) return p
-        return { ...p, score: p.score + r.points, hits: p.hits + (r.hit ? 1 : 0), tries: p.tries + 1 }
+        return { ...p, score: p.score + r.points }
       })
       return {
         ...s,
         players,
-        screen: 'reveal',
-        round: { ...s.round, results, scored: true },
-        history: [...s.history, { game: s.round.game, hits: results.filter((r) => r.hit).length }],
+        screen: 'roundEnd',
+        roundNo: s.roundNo + 1,
+        episode: { ...s.episode, done: s.episode.done + 1 },
+        round: { ...s.round, results, headline, scored: true },
+        history: [...s.history, { game: s.round.game, headline }],
       }
     })
 
-  const nextFromReveal = () => set((s) => ({ screen: 'board', roundNo: s.roundNo + 1 }))
+  const startGame = (players, intensity, duration, venue) => {
+    setG({ ...fresh(), players, intensity, duration, venue, startedAt: Date.now() })
+    startEpisode()
+  }
+
+  const play =
+    g.round?.game === 'bomb' ? (
+      <Bomb g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
+    ) : g.round?.game === 'defend' ? (
+      <Defend g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
+    ) : null
 
   const screens = {
-    home: <Home g={g} onStart={() => set({ screen: 'setup' })} onResume={() => set({ screen: g.round ? 'board' : 'setup' })} />,
-    setup: (
-      <Setup
-        g={g}
-        onBack={() => set({ screen: 'home' })}
-        onGo={(players, intensity, duration, venue) => {
-          setG({ ...fresh(), players, intensity, duration, venue, startedAt: Date.now(), screen: 'board-start' })
-          startRound()
-        }}
-      />
-    ),
-    wheel: <Wheel g={g} onDone={() => set({ screen: 'rules' })} />,
-    rules: <Rules g={g} onGo={() => set({ screen: 'play' })} onSkip={skipPrompt} />,
-    play:
-      g.round && g.round.game === 'auction' ? (
-        <Auction g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
-      ) : (
-        <GuessGame g={g} setRound={setRound} onScore={applyScores} onSkip={skipPrompt} />
-      ),
-    reveal: <Reveal g={g} onNext={nextFromReveal} />,
-    board: (
-      <Board
-        g={g}
-        onNext={startRound}
-        onFinish={() => set({ screen: 'summary' })}
-      />
-    ),
+    home: <Home g={g} onStart={() => { unlock(); sfx.whoosh(); set({ screen: 'setup' }) }} onResume={() => { unlock(); set({ screen: g.round?.scored ? 'roundEnd' : 'play' }) }} />,
+    setup: <Setup onBack={() => set({ screen: 'home' })} onGo={startGame} />,
+    slot: <Slot g={g} onDone={() => set({ screen: 'rules' })} />,
+    rules: <Rules g={g} onGo={() => { sfx.whoosh(); set({ screen: 'play' }) }} />,
+    play,
+    roundEnd: <RoundEnd g={g} onNext={nextRound} onEpisodeEnd={() => set({ screen: 'episodeEnd' })} />,
+    episodeEnd: <EpisodeEnd g={g} onRandom={() => startEpisode()} onPick={(id) => startEpisode(id)} onFinish={() => { sfx.fanfare(); set({ screen: 'summary' }) }} />,
     summary: (
       <Summary
         g={g}
-        onAgain={() => setG({ ...fresh(), players: g.players.map((p) => ({ ...p, score: 0, hits: 0, tries: 0 })), intensity: g.intensity, venue: g.venue, duration: g.duration, startedAt: Date.now(), screen: 'board-start' }) || startRound()}
+        onAgain={() => startGame(g.players.map((p) => ({ ...p, score: 0 })), g.intensity, g.duration, g.venue)}
         onHome={() => setG(fresh())}
       />
     ),
   }
 
   return (
-    <div className="app">
+    <div className={'app game-' + (g.round?.game || 'none')}>
       {g.screen !== 'home' && g.screen !== 'setup' && (
-        <TopBar g={g} onQuit={() => { if (confirm('End this BLAST and go home?')) setG(fresh()) }} />
+        <TopBar
+          g={g}
+          muted={muted}
+          onMute={() => { setMuted(!muted); setM(!muted) }}
+          onQuit={() => { if (confirm('End this BLAST and go home?')) setG(fresh()) }}
+        />
       )}
-      <main key={g.screen + (g.round?.turn ?? '') + (g.round?.step ?? '')} className="screen">
+      <main key={g.screen + (g.round?.step ?? '') + g.roundNo} className="screen">
         {screens[g.screen] || screens.home}
       </main>
     </div>
   )
 }
 
-/* ---------------- screens ---------------- */
+/* ---------------- shared bits ---------------- */
 
-function TopBar({ g, onQuit }) {
-  const mins = g.startedAt ? Math.floor((Date.now() - g.startedAt) / 60000) : 0
+function TopBar({ g, muted, onMute, onQuit }) {
+  const ep = g.episode
   return (
     <header className="topbar">
       <span className="logo-sm">BLAST</span>
-      <span className="muted">Round {g.roundNo + 1}{g.duration ? ` · ${mins}/${g.duration} min` : ''}</span>
-      <button className="link" onClick={onQuit}>Quit</button>
+      <span className="muted tiny">{ep ? `${GAMES[ep.game].emoji} Round ${Math.min(ep.done + 1, ep.total)}/${ep.total}` : ''}</span>
+      <span>
+        <button className="icon" onClick={onMute} aria-label="sound">{muted ? '🔇' : '🔊'}</button>
+        <button className="link" onClick={onQuit}>Quit</button>
+      </span>
     </header>
   )
 }
+
+function ranked(players) {
+  return players.map((p, i) => ({ ...p, i })).sort((a, b) => b.score - a.score)
+}
+
+function MiniBoard({ g }) {
+  const list = ranked(g.players)
+  const top = list[0]?.score ?? 0
+  return (
+    <div className="board">
+      {list.map((p, k) => (
+        <div key={p.i} className={'board-row' + (p.score === top && top > 0 ? ' lead' : '')}>
+          <span className="rank">{p.score === top && top > 0 ? '👑' : k + 1}</span>
+          <span className="bname">{p.name}</span>
+          <span className="bscore">{p.score}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ---------------- screens ---------------- */
 
 function Home({ g, onStart, onResume }) {
   const canResume = g.players.length >= 2 && g.round
@@ -164,7 +187,7 @@ function Home({ g, onStart, onResume }) {
     <div className="center stack">
       <div className="burst">💥</div>
       <h1 className="logo">BLAST</h1>
-      <p className="tag">A pocket game show for 2 to 12 friends.<br />One phone. No sign-up. Pass it around.</p>
+      <p className="tag">The pocket game show for 2 to 12 friends.<br />One phone. No sign-up. Pass it around.</p>
       <button className="btn big" onClick={onStart}>Start a BLAST</button>
       {canResume && <button className="btn ghost" onClick={onResume}>Resume last game</button>}
       <p className="tiny muted">Same app. Different people. Completely different chaos.</p>
@@ -174,7 +197,7 @@ function Home({ g, onStart, onResume }) {
 
 function Setup({ onBack, onGo }) {
   const [names, setNames] = useState(['', ''])
-  const [intensity, setIntensity] = useState('chill')
+  const [intensity, setIntensity] = useState('spicy')
   const [duration, setDuration] = useState(12)
   const [venue, setVenue] = useState('lively')
   const [err, setErr] = useState('')
@@ -183,17 +206,19 @@ function Setup({ onBack, onGo }) {
   const update = (i, v) => setNames((n) => n.map((x, k) => (k === i ? v : x)))
   const add = () => {
     if (names.length >= 12) return
+    sfx.tap()
     setNames((n) => [...n, ''])
     setTimeout(() => inputs.current[names.length]?.focus(), 30)
   }
   const remove = (i) => setNames((n) => n.filter((_, k) => k !== i))
+  const pick = (fn, v) => { sfx.tap(); fn(v) }
 
   const go = () => {
     const clean = names.map((n) => n.trim()).filter(Boolean)
-    if (clean.length < 2) return setErr('Add at least 2 players.')
+    if (clean.length < 2) { sfx.buzzer(); return setErr('Add at least 2 players.') }
     const lower = clean.map((n) => n.toLowerCase())
-    if (new Set(lower).size !== lower.length) return setErr('Two players have the same name. Add an initial.')
-    onGo(clean.map((name) => ({ name, score: 0, hits: 0, tries: 0 })), intensity, duration, venue)
+    if (new Set(lower).size !== lower.length) { sfx.buzzer(); return setErr('Two players have the same name. Add an initial.') }
+    onGo(clean.map((name) => ({ name, score: 0 })), intensity, duration, venue)
   }
 
   return (
@@ -221,7 +246,7 @@ function Setup({ onBack, onGo }) {
       <h3>Vibe</h3>
       <div className="chips">
         {INTENSITIES.map((x) => (
-          <button key={x.id} className={'chip' + (intensity === x.id ? ' on' : '')} onClick={() => setIntensity(x.id)}>
+          <button key={x.id} className={'chip' + (intensity === x.id ? ' on' : '')} onClick={() => pick(setIntensity, x.id)}>
             <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
           </button>
         ))}
@@ -230,7 +255,7 @@ function Setup({ onBack, onGo }) {
       <h3>Where are you?</h3>
       <div className="chips row">
         {VENUES.map((x) => (
-          <button key={x.id} className={'chip slim' + (venue === x.id ? ' on' : '')} onClick={() => setVenue(x.id)}>
+          <button key={x.id} className={'chip slim' + (venue === x.id ? ' on' : '')} onClick={() => pick(setVenue, x.id)}>
             <span className="chip-emoji">{x.emoji}</span>{x.label}<small>{x.hint}</small>
           </button>
         ))}
@@ -239,7 +264,7 @@ function Setup({ onBack, onGo }) {
       <h3>How long?</h3>
       <div className="chips row">
         {DURATIONS.map((x) => (
-          <button key={x.id} className={'chip slim' + (duration === x.id ? ' on' : '')} onClick={() => setDuration(x.id)}>{x.label}</button>
+          <button key={x.id} className={'chip slim' + (duration === x.id ? ' on' : '')} onClick={() => pick(setDuration, x.id)}>{x.label}</button>
         ))}
       </div>
 
@@ -249,288 +274,260 @@ function Setup({ onBack, onGo }) {
   )
 }
 
-function Wheel({ g, onDone }) {
-  // The game is already chosen; the wheel just animates to the real answer (it never lies).
-  const order = ['brain', 'line', 'auction', 'brain', 'line', 'auction']
-  const slice = 360 / order.length
-  const [angle, setAngle] = useState(0)
+// Slot-machine randomizer. The game is already chosen; the reel just lands on it (it never lies).
+function Slot({ g, onDone }) {
+  const ids = Object.keys(GAMES)
+  const target = g.episode.game
+  const H = 120
+  const reel = []
+  for (let k = 0; k < 18; k++) reel.push(ids[k % ids.length])
+  reel.push(target)
+  const [y, setY] = useState(0)
   const [landed, setLanded] = useState(false)
-  const game = GAMES[g.round.game]
   useEffect(() => {
-    const idxs = order.map((x, i) => (x === g.round.game ? i : -1)).filter((i) => i >= 0)
-    const idx = idxs[Math.floor(Math.random() * idxs.length)]
-    const target = 360 * 5 + (360 - (idx * slice + slice / 2))
-    const t1 = setTimeout(() => setAngle(target), 60)
-    const t2 = setTimeout(() => { setLanded(true); buzz(80) }, 2700)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
+    sfx.drumroll(2.2)
+    const t1 = setTimeout(() => setY(-(reel.length - 1) * H), 50)
+    let delay = 40, alive = true, elapsed = 0
+    const tick = () => {
+      if (!alive || elapsed > 2200) return
+      sfx.slotTick(); elapsed += delay; delay *= 1.12
+      setTimeout(tick, delay)
+    }
+    tick()
+    const t2 = setTimeout(() => { setLanded(true); sfx.boom(); buzz(120) }, 2400)
+    return () => { alive = false; clearTimeout(t1); clearTimeout(t2) }
   }, [])
-  const grad = order.map((x, i) => `${GAMES[x].color} ${i * slice}deg ${(i + 1) * slice}deg`).join(',')
+  const game = GAMES[target]
   return (
     <div className="center stack">
-      <p className="muted">Spinning the mystery wheel…</p>
-      <div className="wheel-wrap">
-        <div className="pointer">▼</div>
-        <div className="wheel" style={{ background: `conic-gradient(${grad})`, transform: `rotate(${angle}deg)` }}>
-          {order.map((x, i) => (
-            <span key={i} className="wheel-emoji" style={{ transform: `rotate(${i * slice + slice / 2}deg) translateY(-105px) rotate(${-(i * slice + slice / 2)}deg)` }}>
-              {GAMES[x].emoji}
-            </span>
+      <p className="who">Next game is…</p>
+      <div className={'slot' + (landed ? ' landed' : '')}>
+        <div className="reel" style={{ transform: `translateY(${y}px)` }}>
+          {reel.map((id, k) => (
+            <div key={k} className="slot-card" style={{ background: GAMES[id].color }}>
+              <span>{GAMES[id].emoji}</span>{GAMES[id].title}
+            </div>
           ))}
         </div>
       </div>
       <div className={'land' + (landed ? ' show' : '')}>
-        <h2 style={{ color: game.color }}>{game.emoji} {game.title}</h2>
-        <button className="btn big" onClick={onDone} disabled={!landed}>See the rules</button>
+        <h2 className="shout" style={{ color: game.color }}>{game.title}!</h2>
+        <button className="btn big" onClick={onDone} disabled={!landed}>Show me the rules</button>
       </div>
     </div>
   )
 }
 
-function Rules({ g, onGo, onSkip }) {
-  const game = GAMES[g.round.game]
+function Rules({ g, onGo }) {
+  const game = GAMES[g.episode.game]
   return (
     <div className="center stack">
       <div className="game-badge" style={{ background: game.color }}>{game.emoji}</div>
-      <h2>{game.title}</h2>
+      <h2 className="shout">{game.title}</h2>
       <p className="tag">{game.promise}</p>
+      {game.tags && <p className="tags">{game.tags}</p>}
       <ol className="rules">
         {game.rules.map((r) => <li key={r}>{r}</li>)}
       </ol>
-      <button className="btn big" onClick={onGo}>Start round</button>
-      <button className="link" onClick={onSkip}>Skip this prompt</button>
+      <p className="muted tiny">{g.episode.total} rounds in this episode</p>
+      <button className="btn big" onClick={onGo}>Let's go 🔥</button>
     </div>
   )
 }
 
-/* Same Brain Cell + Where's the Line: pass-and-play, private answers hidden between passes */
-function GuessGame({ g, setRound, onScore, onSkip }) {
+/* ---------------- BLAST Bomb ---------------- */
+function Bomb({ g, setRound, onScore, onSkip }) {
   const r = g.round
-  const game = GAMES[r.game]
-  const me = r.order[r.turn]
-  const target = r.targets[me]
-  const meName = g.players[me].name
-  const tName = g.players[target].name
-  const isLine = r.game === 'line'
-  const [val, setVal] = useState(isLine ? 5 : null)
+  const n = g.players.length
+  const holderName = g.players[r.holder].name
+  const [now, setNow] = useState(Date.now())
+  const holderRef = useRef(r.holder)
+  holderRef.current = r.holder
 
-  if (r.step === 'pass') {
+  // Ticking that speeds up as the secret fuse burns down.
+  useEffect(() => {
+    if (r.step !== 'live') return
+    let alive = true
+    const total = r.endsAt - r.startedAt
+    const loop = () => {
+      if (!alive) return
+      const t = Date.now()
+      setNow(t)
+      if (t >= r.endsAt) {
+        sfx.boom(); buzz([200, 80, 400])
+        setRound({ step: 'boom', loser: holderRef.current })
+        return
+      }
+      const left = (r.endsAt - t) / total
+      sfx.tick(left < 0.25)
+      setTimeout(loop, 120 + 560 * left)
+    }
+    loop()
+    return () => { alive = false }
+  }, [r.step])
+
+  if (r.step === 'ready') {
     return (
-      <div className="center stack pass">
-        <p className="muted">Turn {r.turn + 1} of {g.players.length}</p>
-        <h2>Pass the phone to</h2>
-        <div className="big-name">{meName}</div>
-        <p className="muted tiny">Everyone else, look away 👀</p>
-        <button className="btn big" onClick={() => setRound({ step: 'answer' })}>I'm {meName}</button>
-        {r.turn === 0 && <button className="link" onClick={onSkip}>Skip this prompt</button>}
+      <div className="center stack">
+        <p className="who" style={{ color: GAMES.bomb.color }}>Round category</p>
+        <h2 className="prompt">{r.prompt.q}</h2>
+        <div className="bomb idle">💣</div>
+        <p className="tag"><b>{holderName}</b> holds the bomb first.<br />Say one answer, tap PASS, hand it on. No repeats!</p>
+        <button className="btn big" onClick={() => { const t = Date.now(); sfx.whoosh(); setRound({ step: 'live', startedAt: t, endsAt: t + fuseMs() }) }}>Light the fuse</button>
+        <button className="link" onClick={() => { sfx.tap(); onSkip() }}>New category</button>
       </div>
     )
   }
 
-  const lock = () => {
-    if (val === null) return
-    buzz()
-    if (r.step === 'answer') {
-      setRound({ step: 'guess', answers: { ...r.answers, [me]: val } })
-    } else {
-      const guesses = { ...r.guesses, [me]: val }
-      if (r.turn + 1 >= g.players.length) {
-        const results = scoreGuessRound(r.game, g.players, r.answers, guesses, r.targets)
-        setRound({ guesses })
-        onScore(results)
-      } else {
-        setRound({ guesses, turn: r.turn + 1, step: 'pass' })
-      }
+  if (r.step === 'live') {
+    const heat = r.endsAt ? 1 - Math.max(0, (r.endsAt - now) / (r.endsAt - r.startedAt)) : 0
+    const pass = () => {
+      sfx.pass(); buzz(25)
+      setRound({ holder: (r.holder + 1) % n, passes: r.passes + 1 })
     }
+    return (
+      <div className="center stack bomb-live" style={{ '--heat': heat }}>
+        <p className="who">{r.prompt.q}</p>
+        <div className="bomb" style={{ animationDuration: `${0.9 - heat * 0.75}s` }}>💣</div>
+        <div className="holder">{holderName}</div>
+        <button className="pass-btn" onPointerDown={pass}>PASS ➜</button>
+        <p className="muted tiny">{r.passes} passes · stuck? the group can shout "TIME!" and you must answer</p>
+      </div>
+    )
   }
 
-  const asking = r.step === 'answer'
+  // boom
+  const loser = g.players[r.loser].name
+  const finish = () =>
+    onScore(
+      g.players.map((_, i) => ({ player: i, points: i === r.loser ? 0 : POINTS })),
+      `💥 ${loser} was holding the bomb`,
+    )
   return (
-    <div className="stack">
-      <p className="who" style={{ color: game.color }}>
-        {asking ? `${meName}, your secret answer` : `${meName}, what did ${tName} pick?`}
-      </p>
-      <h2 className="prompt">{r.prompt.q}</h2>
-      {isLine ? (
-        <LineSlider prompt={r.prompt} val={val} setVal={setVal} color={game.color} />
-      ) : (
-        <div className="options">
-          {r.prompt.o.map((o) => (
-            <button key={o} className={'opt' + (val === o ? ' on' : '')} style={val === o ? { borderColor: game.color, background: game.color } : {}} onClick={() => { setVal(o); buzz(10) }}>
-              {o}
-            </button>
-          ))}
-        </div>
-      )}
-      {!asking && <p className="muted tiny center-text">Guess {tName}'s answer. Right = +{POINTS}{isLine ? ' (within 1 counts)' : ''}.</p>}
-      <button className="btn big" disabled={val === null} onClick={lock}>
-        {asking ? 'Lock my answer' : 'Lock my guess'}
-      </button>
+    <div className="center stack boom">
+      <div className="explosion">💥</div>
+      <h2 className="shout">BLAST!</h2>
+      <div className="holder">{loser}</div>
+      <p className="tag">was holding it after {r.passes} passes.<br />Everyone else gets +{POINTS}.</p>
+      <button className="btn big" onClick={finish}>Scores →</button>
     </div>
   )
 }
 
-function LineSlider({ prompt, val, setVal, color }) {
-  return (
-    <div className="line">
-      <div className="line-num" style={{ color }}>{val}</div>
-      <input type="range" min="1" max="10" step="1" value={val} onChange={(e) => { setVal(Number(e.target.value)); buzz(5) }} style={{ accentColor: color }} />
-      <div className="line-ends"><span>1 · {prompt.lo}</span><span>10 · {prompt.hi}</span></div>
-    </div>
-  )
-}
-
-/* Going Once, Going Twice: bid out loud, the app runs the 30s timer, the group confirms */
-function Auction({ g, setRound, onScore, onSkip }) {
+/* ---------------- Defend the Indefensible ---------------- */
+function Defend({ g, setRound, onScore, onSkip }) {
   const r = g.round
-  const game = GAMES.auction
+  const game = GAMES.defend
+  const name = g.players[r.holder].name
   const [left, setLeft] = useState(30)
-  const opener = g.players[r.opener].name
+  const [flipped, setFlipped] = useState(false)
 
   useEffect(() => {
-    if (r.step !== 'timer') return
-    setLeft(30)
+    if (r.step !== 'live') return
     const start = Date.now()
+    let twisted = false
     const id = setInterval(() => {
       const l = Math.max(0, 30 - Math.floor((Date.now() - start) / 1000))
-      setLeft(l)
-      if (l <= 5 && l > 0) buzz(20)
-      if (l === 0) { clearInterval(id); buzz(300); setRound({ step: 'confirm' }) }
+      setLeft((old) => { if (old !== l && l <= 5 && l > 0) sfx.tick(true); return l })
+      if (r.twist && !twisted && l <= 15) { twisted = true; setFlipped(true); sfx.twist(); buzz([100, 50, 100]) }
+      if (l === 0) { clearInterval(id); sfx.buzzer(); buzz(300); setRound({ step: 'rate', flipped: r.twist }) }
     }, 200)
     return () => clearInterval(id)
   }, [r.step])
 
-  if (r.step === 'pass') {
-    return (
-      <div className="stack">
-        <p className="who" style={{ color: game.color }}>Category</p>
-        <h2 className="prompt">{r.prompt.q}</h2>
-        <p className="tag">How many can you name in 30 seconds?<br /><b>{opener}</b> opens the bidding. Go round, out loud. Each bid must go higher.{g.venue === 'quiet' ? ' Inside voices, you are in public 🤫' : ''}</p>
-        <h3>Who won the bid?</h3>
-        <div className="chips row wrap">
-          {g.players.map((p, i) => (
-            <button key={i} className={'chip slim' + (r.bidder === i ? ' on' : '')} onClick={() => setRound({ bidder: i })}>{p.name}</button>
-          ))}
-        </div>
-        <h3>Winning bid</h3>
-        <div className="stepper">
-          <button onClick={() => setRound({ bid: Math.max(1, r.bid - 1) })}>−</button>
-          <span>{r.bid}</span>
-          <button onClick={() => setRound({ bid: Math.min(30, r.bid + 1) })}>+</button>
-        </div>
-        <button className="btn big" disabled={r.bidder === null} onClick={() => setRound({ step: 'timer', count: 0 })}>Start 30s timer</button>
-        <button className="link" onClick={onSkip}>Skip this category</button>
-      </div>
-    )
-  }
-
-  const bidderName = g.players[r.bidder].name
-
-  if (r.step === 'timer') {
+  if (r.step === 'ready') {
     return (
       <div className="center stack">
-        <p className="who" style={{ color: game.color }}>{bidderName} needs {r.bid}</p>
-        <h2 className="prompt">{r.prompt.q}</h2>
-        <div className={'timer' + (left <= 5 ? ' hot' : '')}>{left}</div>
-        <button className="counter" onClick={() => { setRound({ count: r.count + 1 }); buzz(15) }}>
-          <span>{r.count}</span>
-          <small>Tap for each valid answer</small>
-        </button>
-        <button className="link" onClick={() => setRound({ step: 'confirm' })}>Stop early</button>
+        <p className="who" style={{ color: game.color }}>{name}, you must defend:</p>
+        <h2 className="prompt quote">“{r.prompt.q}”</h2>
+        <p className="tag">Read it out loud. You get 30 seconds. Be dramatic. Be a lawyer. Be shameless.</p>
+        <button className="btn big" onClick={() => { sfx.whoosh(); setRound({ step: 'live' }) }}>Start my 30 seconds</button>
+        <button className="link" onClick={() => { sfx.tap(); onSkip() }}>Give me a different one</button>
       </div>
     )
   }
 
-  // confirm
-  const finish = (hit) => {
-    const results = g.players.map((_, i) => ({ player: i, hit: i === r.bidder && hit, points: i === r.bidder && hit ? POINTS : 0, skip: i !== r.bidder }))
-      .filter((x) => !x.skip)
-    onScore(results)
+  if (r.step === 'live') {
+    return (
+      <div className={'center stack' + (flipped ? ' twisted' : '')}>
+        {flipped ? (
+          <>
+            <div className="twist-banner">🔄 PLOT TWIST!</div>
+            <p className="tag"><b>{name}</b>, now argue the <b>OPPOSITE</b>!</p>
+            <h2 className="prompt quote strike">“{r.prompt.q}”</h2>
+          </>
+        ) : (
+          <>
+            <p className="who" style={{ color: game.color }}>{name} is defending</p>
+            <h2 className="prompt quote">“{r.prompt.q}”</h2>
+          </>
+        )}
+        <div className={'timer' + (left <= 5 ? ' hot' : '')}>{left}</div>
+        <button className="link" onClick={() => { sfx.buzzer(); setRound({ step: 'rate', flipped }) }}>Done early</button>
+      </div>
+    )
+  }
+
+  // rate
+  const rate = (fire) => {
+    if (fire >= 4) sfx.fanfare(); else sfx.ding()
+    buzz(60)
+    const verdict = ['', 'Objection sustained 😬', 'Weak case', 'Decent lawyer', 'Very convincing', 'Supreme Court material'][fire]
+    onScore([{ player: r.holder, points: fire * POINTS }], `${'🔥'.repeat(fire)} ${name}: ${verdict} (+${fire * POINTS})`)
   }
   return (
     <div className="center stack">
-      <h2>Time!</h2>
-      <p className="tag">{bidderName} bid <b>{r.bid}</b>. Counter says <b>{r.count}</b>.</p>
-      <p className="muted">Group: did {bidderName} really hit {r.bid} valid answers?</p>
-      <button className="btn big" onClick={() => finish(true)}>✅ Yes, +{POINTS} to {bidderName}</button>
-      <button className="btn ghost" onClick={() => finish(false)}>❌ No, they fell short</button>
+      <h2 className="shout">Verdict!</h2>
+      <p className="tag">Everyone except {name}: how convincing was that{r.flipped ? ', including the twist' : ''}?<br />Decide together, then tap.</p>
+      <div className="fires">
+        {[1, 2, 3, 4, 5].map((f) => (
+          <button key={f} className="fire" onClick={() => rate(f)}>
+            <span>{'🔥'.repeat(f)}</span><small>+{f * POINTS}</small>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
 
-function Reveal({ g, onNext }) {
-  const r = g.round
-  const game = GAMES[r.game]
-  const [shown, setShown] = useState(0)
-  const rows = r.results || []
-  useEffect(() => {
-    if (shown >= rows.length) return
-    const t = setTimeout(() => { setShown((s) => s + 1); buzz(rows[shown]?.hit ? 60 : 10) }, shown === 0 ? 300 : 900)
-    return () => clearTimeout(t)
-  }, [shown])
+/* ---------------- between rounds / games ---------------- */
 
-  if (r.game === 'auction') {
-    const x = rows[0]
-    return (
-      <div className="center stack">
-        <div className="burst">{x.hit ? '🎉' : '💸'}</div>
-        <h2>{x.hit ? `${g.players[x.player].name} delivered!` : `${g.players[x.player].name} overbid!`}</h2>
-        <p className="tag">{x.hit ? `+${POINTS} BLAST points` : 'No points this time.'}</p>
-        <button className="btn big" onClick={onNext}>Scores →</button>
-      </div>
-    )
-  }
-
-  const show = (v) => (r.game === 'line' ? `${v}/10` : v)
+function RoundEnd({ g, onNext, onEpisodeEnd }) {
+  const ep = g.episode
+  const last = ep.done >= ep.total
   return (
     <div className="stack">
-      <p className="who" style={{ color: game.color }}>{game.emoji} The reveal</p>
-      <h2 className="prompt small">{r.prompt.q}</h2>
-      <div className="reveal-list">
-        {rows.map((x, k) => (
-          <div key={k} className={'reveal-row' + (k < shown ? ' in' : '') + (x.hit ? ' hit' : '')}>
-            <div>
-              <b>{g.players[x.player].name}</b> guessed <b>{g.players[x.target].name}</b> → {show(x.guess)}
-              <div className="muted tiny">{g.players[x.target].name} actually said: {show(x.actual)}</div>
-            </div>
-            <span className="pts">{x.hit ? `+${POINTS}` : '✗'}</span>
-          </div>
-        ))}
-      </div>
-      {shown >= rows.length && (
-        <>
-          <p className="center-text tag">{rows.filter((x) => x.hit).length === 0 ? 'Zero brain cells shared. Wow.' : rows.every((x) => x.hit) ? 'One brain cell, whole group. 🧠' : `${rows.filter((x) => x.hit).length} of ${rows.length} nailed it.`}</p>
-          <button className="btn big" onClick={onNext}>Scores →</button>
-        </>
+      <p className="who center-text">Round {ep.done} of {ep.total}</p>
+      <h2 className="center-text">{g.round.headline}</h2>
+      <MiniBoard g={g} />
+      {last ? (
+        <button className="btn big" onClick={() => { sfx.fanfare(); onEpisodeEnd() }}>Episode over 🏁</button>
+      ) : (
+        <button className="btn big" onClick={onNext}>Next round →</button>
       )}
     </div>
   )
 }
 
-function ranked(players) {
-  return players.map((p, i) => ({ ...p, i })).sort((a, b) => b.score - a.score)
-}
-
-function Board({ g, onNext, onFinish }) {
-  const list = ranked(g.players)
+function EpisodeEnd({ g, onRandom, onPick, onFinish }) {
   const elapsed = g.startedAt ? (Date.now() - g.startedAt) / 60000 : 0
   const timeUp = g.duration > 0 && elapsed >= g.duration
-  const top = list[0]?.score ?? 0
+  const others = Object.values(GAMES)
   return (
     <div className="stack">
-      <h2>Leaderboard</h2>
-      <div className="board">
-        {list.map((p, k) => (
-          <div key={p.i} className={'board-row' + (p.score === top && top > 0 ? ' lead' : '')}>
-            <span className="rank">{p.score === top && top > 0 ? '👑' : k + 1}</span>
-            <span className="bname">{p.name}</span>
-            <span className="muted tiny">{p.hits}/{p.tries} hits</span>
-            <span className="bscore">{p.score}</span>
-          </div>
+      <h2 className="center-text shout">{GAMES[g.episode.game].emoji} Episode done!</h2>
+      <MiniBoard g={g} />
+      {timeUp && <p className="center-text tag">⏰ You hit your {g.duration}-minute target!</p>}
+      <button className="btn big" onClick={onRandom}>Next game 🎰</button>
+      <h3>…or pick the next game</h3>
+      <div className="chips row wrap">
+        {others.map((x) => (
+          <button key={x.id} className="chip slim" onClick={() => { sfx.tap(); onPick(x.id) }}>
+            <span className="chip-emoji">{x.emoji}</span>{x.title}
+          </button>
         ))}
       </div>
-      {timeUp && <p className="center-text tag">⏰ You hit your {g.duration}-minute target!</p>}
-      <button className="btn big" onClick={onNext}>{timeUp ? 'One more round' : 'Next round 🎡'}</button>
-      <button className={'btn ' + (timeUp ? '' : 'ghost')} onClick={onFinish}>Finish & crown the winner</button>
+      <button className={'btn ' + (timeUp ? '' : 'ghost')} onClick={onFinish}>Finish & crown the winner 👑</button>
     </div>
   )
 }
@@ -542,16 +539,12 @@ function Summary({ g, onAgain, onHome }) {
   const rounds = g.history.length
   return (
     <div className="center stack">
-      <div className="confetti" aria-hidden>{Array.from({ length: 24 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 8) * 0.15}s`, background: ['#ff3d7f', '#00d1ff', '#ffc700', '#7cff6b'][i % 4] }} />)}</div>
+      <div className="confetti" aria-hidden>{Array.from({ length: 30 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 10) * 0.15}s`, background: ['#ff2e63', '#00e0ff', '#ffb800', '#9dff3b', '#b14dff'][i % 5] }} />)}</div>
       <div className="burst">🏆</div>
-      <h2>{top === 0 ? 'Everybody tied at zero 😅' : winners.length > 1 ? 'Joint winners!' : 'Winner!'}</h2>
-      {top > 0 && <div className="big-name">{winners.map((w) => w.name).join(' & ')}</div>}
-      <p className="tag">{top} points · {rounds} round{rounds === 1 ? '' : 's'} played</p>
-      <div className="board">
-        {list.map((p) => (
-          <div key={p.i} className="board-row"><span className="bname">{p.name}</span><span className="bscore">{p.score}</span></div>
-        ))}
-      </div>
+      <h2 className="shout">{top === 0 ? 'Everybody tied at zero 😅' : winners.length > 1 ? 'Joint winners!' : 'Winner!'}</h2>
+      {top > 0 && <div className="holder">{winners.map((w) => w.name).join(' & ')}</div>}
+      <p className="tag">{top} points · {rounds} round{rounds === 1 ? '' : 's'} of chaos</p>
+      <MiniBoard g={g} />
       <button className="btn big" onClick={onAgain}>Play again, same squad</button>
       <button className="btn ghost" onClick={onHome}>New group</button>
     </div>
