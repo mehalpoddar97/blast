@@ -30,6 +30,10 @@ Friend groups in their 20s and 30s, at a dinner table, a house party, a cafe or 
 | 📏 **Where's the Line?** | One player secretly places a situation on a 1 to 10 scale. The group argues and agrees on one guess. | Exact +20 each, off by 1 +10 each |
 | 🔨 **Going Once, Going Twice** | Bid out loud on how many answers you can name in 30 s. SOLD! Live timer and tap counter. | Hit your bid +30, fall short = everyone else +10 |
 
+## The prompt deck
+
+120+ prompts across five games and three spice levels (Chill, Spicy, Unhinged), drafted with AI and hand-curated for Indian friend groups: Bollywood, weddings, aunties, chai, office life. They are pre-written and bundled with the app, so play never waits on a network call or breaks mid-round, and "Unhinged" stays absurd rather than mean.
+
 ## Matching games to the crowd
 
 | How well you know each other | Games allowed | Prompts |
